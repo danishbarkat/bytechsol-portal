@@ -1,0 +1,8 @@
+
+{
+  "name": "Zenith Attendance Pro",
+  "description": "A high-performance employee attendance management system with Wi-Fi network validation, real-time tracking, and automated timesheet reporting.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

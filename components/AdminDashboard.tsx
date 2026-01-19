@@ -891,36 +891,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
             )}
           </div>
-          <div className="glass-card rounded-[2.5rem] overflow-hidden">
-            <table className="w-full text-left">
+          <div className="glass-card rounded-[2.5rem]">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-left">
               <thead>
                 <tr className="bg-slate-50/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <th className="px-8 py-5">Employee</th>
-                  <th className="px-8 py-5">Date</th>
-                  <th className="px-8 py-5">Arrival</th>
-                  <th className="px-8 py-5">Duration</th>
-                  <th className="px-8 py-5">Actions</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Employee</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Date</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Arrival</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Duration</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {filteredAttendance.map(r => (
                   <tr key={r.id} className="hover:bg-blue-50/20 transition-all">
-                    <td className="px-8 py-6 font-black text-slate-900">{r.userName}</td>
-                    <td className="px-8 py-6 text-xs font-bold text-slate-500">{r.date}</td>
-                    <td className="px-8 py-6">
+                    <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-slate-900">{r.userName}</td>
+                    <td className="px-4 md:px-6 2xl:px-8 py-6 text-xs font-bold text-slate-500">{r.date}</td>
+                    <td className="px-4 md:px-6 2xl:px-8 py-6">
                       <div className="flex flex-col">
                         <span className="text-xs font-black">{new Date(r.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${r.status === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{r.status}</span>
                       </div>
                     </td>
-                    <td className="px-8 py-6 font-black text-blue-600">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
-                    <td className="px-8 py-6">
+                    <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-blue-600">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
+                    <td className="px-4 md:px-6 2xl:px-8 py-6">
                       {isSuperadmin && <button onClick={() => startEditingRecord(r)} className="text-[10px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-800 underline">Manual Edit</button>}
                     </td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -961,9 +963,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <div className="grid grid-cols-1 gap-6">
             {visibleLeaves.length === 0 ? <div className="glass-card rounded-[2rem] p-20 text-center font-black text-slate-300 uppercase tracking-widest">No Leave Records Found</div> : visibleLeaves.map(l => (
-              <div key={l.id} className="glass-card rounded-[2rem] p-8 flex items-center justify-between">
+              <div key={l.id} className="glass-card rounded-[2rem] p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div className="space-y-2">
-                  <div className="flex items-center space-x-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <span className="font-black text-lg text-slate-900">{l.userName}</span>
                     <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{l.status}</span>
                     <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.isPaid === false ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}>{l.isPaid === false ? 'Unpaid' : 'Paid'}</span>
@@ -972,7 +974,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <p className="text-sm font-medium text-slate-700 italic">"{l.reason}"</p>
                 </div>
                 {l.status === 'Pending' && (
-                  <div className="flex space-x-2">
+                  <div className="flex flex-wrap gap-2">
                     {canApprove ? <><button onClick={() => onLeaveAction(l.id, 'Approved')} className="bg-emerald-500 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 transition-all">Approve</button><button onClick={() => onLeaveAction(l.id, 'Rejected')} className="bg-rose-500 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-600 transition-all">Reject</button></> : <span className="text-[10px] font-black text-slate-300 uppercase italic">Awaiting CEO Action</span>}
                   </div>
                 )}
@@ -998,14 +1000,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <h2 className="text-4xl font-black text-slate-900">{formatDuration(visibleUsers.reduce((sum, u) => sum + calculateWeeklyOvertime(u.id, visibleRecords), 0) / (visibleUsers.length || 1))}</h2>
             </div>
           </div>
-          <div className="glass-card rounded-[2.5rem] overflow-hidden">
-            <table className="w-full text-left">
+          <div className="glass-card rounded-[2.5rem]">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] text-left">
               <thead>
                 <tr className="bg-slate-50/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <th className="px-8 py-5">Employee</th>
-                  <th className="px-8 py-5">Total Hours (Week)</th>
-                  <th className="px-8 py-5">OT Hours</th>
-                  <th className="px-8 py-5">Status</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Employee</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Total Hours (Week)</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">OT Hours</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -1013,24 +1016,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   const ot = calculateWeeklyOvertime(u.id, visibleRecords);
                   return (
                     <tr key={u.id}>
-                      <td className="px-8 py-6 font-black text-slate-900">{u.name}</td>
-                      <td className="px-8 py-6 font-bold text-slate-600">{formatDuration(visibleRecords.filter(r => r.userId === u.id).reduce((sum, r) => sum + (r.totalHours || 0), 0))}</td>
-                      <td className="px-8 py-6 font-black text-blue-600">{ot > 0 ? formatDuration(ot) : '--'}</td>
-                      <td className="px-8 py-6"><span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${ot > 0 ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>{ot > 0 ? 'OT Eligible' : 'Standard'}</span></td>
+                      <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-slate-900">{u.name}</td>
+                      <td className="px-4 md:px-6 2xl:px-8 py-6 font-bold text-slate-600">{formatDuration(visibleRecords.filter(r => r.userId === u.id).reduce((sum, r) => sum + (r.totalHours || 0), 0))}</td>
+                      <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-blue-600">{ot > 0 ? formatDuration(ot) : '--'}</td>
+                      <td className="px-4 md:px-6 2xl:px-8 py-6"><span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${ot > 0 ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>{ot > 0 ? 'OT Eligible' : 'Standard'}</span></td>
                     </tr>
                   );
                 })}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
       {tab === 'personnel' && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center px-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 px-4">
             <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Workforce Directory</h3>
-            <button onClick={() => { setIsAddingUser(true); setEmployeeIdSeed(getNextEmployeeSeed(users)); setUserForm({ role: Role.EMPLOYEE }); setEssForm({}); }} className="bg-blue-600 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 transition-all flex items-center gap-2">
+            <button onClick={() => { setIsAddingUser(true); setEmployeeIdSeed(getNextEmployeeSeed(users)); setUserForm({ role: Role.EMPLOYEE }); setEssForm({}); }} className="bg-blue-600 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 transition-all flex items-center gap-2 w-full sm:w-auto justify-center">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4"></path></svg>
               Add New Employee
             </button>

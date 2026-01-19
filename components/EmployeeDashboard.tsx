@@ -127,7 +127,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">My Workspace</h1>
-          <div className="flex items-center gap-3 mt-1">
+          <div className="flex flex-wrap items-center gap-3 mt-1">
             <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1 rounded-full">{user.position || 'Genral Staff'}</p>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ID: {user.employeeId}</p>
           </div>
@@ -153,7 +153,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       {tab === 'attendance' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-4 space-y-8">
-            <div className="glass-card rounded-[3rem] p-10 text-center relative overflow-hidden border-2 border-white shadow-2xl">
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 text-center relative overflow-hidden border-2 border-white shadow-2xl">
               <div className={`absolute top-0 right-0 px-5 py-2 text-[9px] font-black uppercase tracking-widest ${workMode === 'Remote' ? 'bg-slate-900 text-white' : isWifiConnected ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
                 {workMode === 'Remote' ? 'Remote Mode' : isWifiConnected ? 'Network Secure' : 'Access Restricted'}
               </div>
@@ -213,10 +213,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
             </div>
           </div>
           <div className="lg:col-span-8">
-            <div className="glass-card rounded-[3rem] p-10 h-full overflow-hidden">
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 h-full overflow-hidden">
               <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-8">Activity Log</h3>
               <div className="overflow-x-auto">
-                <table className="w-full text-left">
+                <table className="w-full min-w-[520px] text-left">
                   <thead>
                     <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50">
                       <th className="pb-4">Date</th>
@@ -244,7 +244,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
 
       {tab === 'leaves' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-          <div className="glass-card rounded-[3rem] p-10 space-y-8">
+          <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-8">
             <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Apply for Leave</h3>
             <div className="space-y-4">
               <div className="space-y-1">
@@ -276,9 +276,9 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
             ) : (
               myLeaves.map(l => (
                 <div key={l.id} className="glass-card rounded-[2rem] p-8 border-l-8 border-blue-500 hover:scale-[1.01] transition-all">
-                  <div className="flex justify-between items-center mb-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                     <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{l.startDate} - {l.endDate}</span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{l.status}</span>
                       <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.isPaid === false ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}>{l.isPaid === false ? 'Unpaid' : 'Paid'}</span>
                     </div>
@@ -295,7 +295,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       {tab === 'profile' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-8 space-y-8">
-            <div className="glass-card rounded-[3rem] p-10 space-y-10">
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-10">
               <div>
                 <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Emergency Contact</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -327,7 +327,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
             </div>
           </div>
           <div className="lg:col-span-4 space-y-6">
-            <div className="glass-card rounded-[3rem] p-10 bg-blue-600 text-white shadow-blue-200 shadow-2xl">
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 bg-blue-600 text-white shadow-blue-200 shadow-2xl">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">Monthly Compensation</p>
               <h2 className="text-4xl font-black mt-2">PKR {monthlySalary.toLocaleString()}</h2>
               <div className="mt-6 pt-6 border-t border-white/10 flex items-center justify-between">
@@ -341,7 +341,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
               </div>
             </div>
 
-            <div className="glass-card rounded-[3rem] p-10">
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">
               <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Tax Documents</h3>
               <div className="space-y-3">
                 {['Form 16 - 2024', 'W-2 Statement 2024', 'Tax Projection 2025'].map(doc => (
@@ -363,7 +363,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
 
       {tab === 'checklists' && (
         <div className="max-w-3xl mx-auto w-full">
-          <div className="glass-card rounded-[3rem] p-10 space-y-10">
+          <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-10">
             <div className="text-center">
               <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-2">{myChecklist.type} Checklist</h3>
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Complete these steps for your corporate clearance</p>

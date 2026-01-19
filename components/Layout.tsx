@@ -33,11 +33,11 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     <div className="min-h-screen flex flex-col">
       <nav className="bg-white/70 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-20 items-center">
+          <div className="flex flex-col gap-4 py-4 md:flex-row md:items-center md:justify-between md:h-20 md:py-0">
           <div className="flex items-center">
             <img src={logoUrl} alt="BytechSol" className="h-10 w-auto" />
           </div>
-            <div className="flex items-center space-x-6">
+            <div className="flex flex-wrap items-center gap-4 justify-end">
               <div className="text-right border-r border-slate-200 pr-4 sm:pr-6">
                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">PKT Time</p>
                 <p className="text-sm font-black text-slate-900">{currentTime}</p>
@@ -57,7 +57,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
           </div>
         </div>
       </nav>
-      <main className="flex-1 max-w-7xl w-full mx-auto p-6 sm:p-8 lg:p-10">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 2xl:p-10">
         {children}
       </main>
       <footer className="bg-white/50 py-8 text-center border-t border-slate-100">

@@ -16,10 +16,22 @@ interface EmployeeDashboardProps {
   onSubmitLeave: (start: string, end: string, reason: string) => void;
   onUpdateESS: (profile: ESSProfile) => void;
   onUpdateChecklist: (checklist: UserChecklist) => void;
+  onUpdateUser: (user: User) => void;
 }
 
 const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
-  user, records, leaves, essProfiles, checklists, onCheckIn, onCheckOut, isWifiConnected, onSubmitLeave, onUpdateESS, onUpdateChecklist
+  user,
+  records,
+  leaves,
+  essProfiles,
+  checklists,
+  onCheckIn,
+  onCheckOut,
+  isWifiConnected,
+  onSubmitLeave,
+  onUpdateESS,
+  onUpdateChecklist,
+  onUpdateUser
 }) => {
   const [tab, setTab] = useState<'attendance' | 'leaves' | 'profile' | 'checklists'>('attendance');
   const buildLeaveTemplate = (employee: User) =>
@@ -104,6 +116,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const weeklyOT = calculateWeeklyOvertime(user.id, records);
   const workMode = user.workMode || 'Onsite';
   const canTrack = workMode === 'Remote' || isWifiConnected;
+  const salaryHidden = Boolean(user.salaryHidden);
   const activeSeconds = activeRecord && !activeRecord.checkOut
     ? (currentTime.getTime() - new Date(activeRecord.checkIn).getTime()) / 1000
     : 0;
@@ -328,8 +341,17 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
           </div>
           <div className="lg:col-span-4 space-y-6">
             <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 bg-blue-600 text-white shadow-blue-200 shadow-2xl">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">Monthly Compensation</p>
-              <h2 className="text-4xl font-black mt-2">PKR {monthlySalary.toLocaleString()}</h2>
+              <div className="flex items-start justify-between gap-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">Monthly Compensation</p>
+                <button
+                  type="button"
+                  onClick={() => onUpdateUser({ ...user, salaryHidden: !salaryHidden })}
+                  className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+                >
+                  {salaryHidden ? 'Show Salary' : 'Hide Salary'}
+                </button>
+              </div>
+              <h2 className="text-4xl font-black mt-2">{salaryHidden ? 'Hidden' : `PKR ${monthlySalary.toLocaleString()}`}</h2>
               <div className="mt-6 pt-6 border-t border-white/10 flex items-center justify-between">
                 <div>
                   <p className="text-[8px] font-black uppercase tracking-widest opacity-60">Status</p>

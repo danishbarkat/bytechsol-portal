@@ -20,6 +20,7 @@ export interface User {
   salary?: number;
   basicSalary?: number;
   allowances?: number;
+  salaryHidden?: boolean;
   workMode?: 'Onsite' | 'Remote';
   grade?: string;
   teamLead?: string;

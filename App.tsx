@@ -369,6 +369,9 @@ const App: React.FC = () => {
       void saveUsers(updated);
       return updated;
     });
+    if (user?.id === updatedUser.id) {
+      setUser(updatedUser);
+    }
   };
 
   const handleDeleteUser = (userId: string) => {
@@ -520,6 +523,7 @@ const App: React.FC = () => {
           onSubmitLeave={handleSubmitLeave}
           onUpdateESS={handleUpdateESS}
           onUpdateChecklist={handleUpdateChecklist}
+          onUpdateUser={handleUpdateUser}
         />
       ) : (
         <AdminDashboard

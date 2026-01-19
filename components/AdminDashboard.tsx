@@ -748,6 +748,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setEssForm({});
   };
 
+  const closeUserModal = () => {
+    setIsAddingUser(false);
+    setEditingUser(null);
+    setUserForm({});
+    setEssForm({});
+  };
+
   const updateDocForm = (field: string, value: string) => {
     setDocForm(prev => ({ ...prev, [field]: value }));
   };
@@ -1050,6 +1057,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div>
                       <h3 className="font-black text-slate-900">{u.name}</h3>
                       <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">{u.position || 'Genral Staff'}</p>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">ID: {u.employeeId}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{u.role}</p>
                         <span className="text-[9px] font-bold text-slate-500">•</span>
@@ -1304,7 +1312,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* User Add/Edit Modal */}
       {(isAddingUser || editingUser) && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-white rounded-[3rem] w-full max-w-2xl p-10 shadow-2xl my-8">
+          <div className="relative bg-white rounded-[3rem] w-full max-w-2xl p-6 sm:p-8 lg:p-10 shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={closeUserModal}
+              className="absolute right-5 top-5 text-slate-400 hover:text-slate-600 transition-all"
+              aria-label="Close"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
             <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter mb-8">{isAddingUser ? 'Add New Employee' : 'Edit Employee Details'}</h3>
             <form onSubmit={handleUserSubmit} className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1333,9 +1351,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              <div className="flex space-x-4 pt-6">
+              <div className="flex flex-col sm:flex-row gap-4 pt-6">
                 <button type="submit" className="flex-1 premium-gradient text-white py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl">Save Changes</button>
-                <button type="button" onClick={() => { setIsAddingUser(false); setEditingUser(null); }} className="px-10 py-5 bg-slate-100 text-slate-500 rounded-2xl font-black text-sm uppercase tracking-widest">Cancel</button>
+                <button type="button" onClick={closeUserModal} className="px-10 py-5 bg-slate-100 text-slate-500 rounded-2xl font-black text-sm uppercase tracking-widest">Cancel</button>
               </div>
             </form>
           </div>

@@ -39,6 +39,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [leaveApplication, setLeaveApplication] = useState(buildLeaveTemplate(user));
   const [currentTime, setCurrentTime] = useState(new Date());
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
 
   const isSameMonth = (dateStr: string, target: Date) => {
     const date = new Date(dateStr);
@@ -71,6 +75,28 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
 
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
+  };
+
+  const handlePasswordReset = () => {
+    const trimmed = passwordInput.trim();
+    if (!trimmed) {
+      setPasswordError('Enter a new security key.');
+      return;
+    }
+    if (trimmed.length < 6) {
+      setPasswordError('Use at least 6 characters.');
+      return;
+    }
+    if (trimmed !== confirmPasswordInput.trim()) {
+      setPasswordError('Passwords do not match.');
+      return;
+    }
+    onUpdateUser({ ...user, password: trimmed });
+    setPasswordInput('');
+    setConfirmPasswordInput('');
+    setPasswordError(null);
+    setPasswordSuccess(true);
+    setTimeout(() => setPasswordSuccess(false), 3000);
   };
 
   const downloadTaxDoc = (docName: string) => {
@@ -378,6 +404,47 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                 ))}
               </div>
               <p className="mt-6 text-[8px] font-bold text-slate-300 uppercase text-center">Digitized Filing Cabinet v1.0</p>
+            </div>
+
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Security Key</h3>
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label htmlFor="profile-password" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">New Password</label>
+                  <input
+                    id="profile-password"
+                    name="newPassword"
+                    type="password"
+                    value={passwordInput}
+                    onChange={e => setPasswordInput(e.target.value)}
+                    className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="profile-password-confirm" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Confirm Password</label>
+                  <input
+                    id="profile-password-confirm"
+                    name="confirmPassword"
+                    type="password"
+                    value={confirmPasswordInput}
+                    onChange={e => setConfirmPasswordInput(e.target.value)}
+                    className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
+                  />
+                </div>
+                {passwordError && (
+                  <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">{passwordError}</p>
+                )}
+                {passwordSuccess && (
+                  <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Password updated</p>
+                )}
+                <button
+                  type="button"
+                  onClick={handlePasswordReset}
+                  className="w-full premium-gradient text-white py-4 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl"
+                >
+                  Update Password
+                </button>
+              </div>
             </div>
           </div>
         </div>

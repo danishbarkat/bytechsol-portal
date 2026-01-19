@@ -26,6 +26,15 @@ const formatEmployeeId = (firstName?: string, lastName?: string, seed?: number) 
   return `BS-${toInitials(firstName)}${toInitials(lastName)}${suffix}`;
 };
 
+const generateTempPassword = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+  let value = '';
+  for (let i = 0; i < 10; i += 1) {
+    value += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return value;
+};
+
 const splitName = (name?: string) => {
   const parts = (name || '').trim().split(/\s+/);
   const firstName = parts[0] || '';
@@ -505,6 +514,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const isHr = user.role === Role.HR;
   const isCeo = user.role === Role.CEO;
   const canDeleteUsers = isSuperadmin || isCeo;
+  const canResetPassword = Boolean(editingUser && editingUser.role !== Role.SUPERADMIN);
   const visibleUsers = isHr
     ? users.filter(u => u.role !== Role.SUPERADMIN && u.role !== Role.CEO)
     : isCeo
@@ -1331,7 +1341,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="space-y-1"><label htmlFor="user-dob" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Date of Birth</label><input id="user-dob" name="dob" type="date" value={userForm.dob || ''} onChange={e => setUserForm({ ...userForm, dob: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
                 <div className="space-y-1"><label htmlFor="user-phone" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Phone Number</label><input id="user-phone" name="phone" type="tel" value={userForm.phone || ''} onChange={e => setUserForm({ ...userForm, phone: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
                 <div className="space-y-1"><label htmlFor="user-email" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Email Address</label><input id="user-email" name="email" required type="email" value={userForm.email || ''} onChange={e => setUserForm({ ...userForm, email: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="user-password" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Security Key (Password)</label><input id="user-password" name="password" required type="text" value={userForm.password || ''} onChange={e => setUserForm({ ...userForm, password: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1">
+                  <label htmlFor="user-password" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Security Key (Password)</label>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <input id="user-password" name="password" required type="text" value={userForm.password || ''} onChange={e => setUserForm({ ...userForm, password: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
+                    {canResetPassword && (
+                      <button
+                        type="button"
+                        onClick={() => setUserForm(prev => ({ ...prev, password: generateTempPassword() }))}
+                        className="shrink-0 px-4 py-3 rounded-xl bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
+                      >
+                        Reset Password
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <div className="space-y-1"><label htmlFor="user-employee-id" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label><input id="user-employee-id" name="employeeId" required readOnly type="text" value={formatEmployeeId(userForm.firstName, userForm.lastName, employeeIdSeed)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent outline-none font-bold text-slate-800 text-slate-500" /></div>
                 <div className="space-y-1"><label htmlFor="user-basic-salary" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Basic Salary (Monthly)</label><input id="user-basic-salary" name="basicSalary" type="number" value={userForm.basicSalary || ''} onChange={e => setUserForm({ ...userForm, basicSalary: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
                 <div className="space-y-1"><label htmlFor="user-allowances" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Allowances (Monthly)</label><input id="user-allowances" name="allowances" type="number" value={userForm.allowances || ''} onChange={e => setUserForm({ ...userForm, allowances: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>

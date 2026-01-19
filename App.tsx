@@ -449,7 +449,7 @@ const App: React.FC = () => {
                   <input
                     id="login-employee-id"
                     name="employeeId"
-                    type="password"
+                    type="text"
                     required
                     value={employeeIdInput}
                     onChange={e => setEmployeeIdInput(e.target.value)}

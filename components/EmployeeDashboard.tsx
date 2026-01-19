@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
+import { getLocalDateString, getShiftDateString } from '../utils/dates';
+import { APP_CONFIG } from '../constants';
 
 interface EmployeeDashboardProps {
   user: User;
@@ -20,15 +22,22 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   user, records, leaves, essProfiles, checklists, onCheckIn, onCheckOut, isWifiConnected, onSubmitLeave, onUpdateESS, onUpdateChecklist
 }) => {
   const [tab, setTab] = useState<'attendance' | 'leaves' | 'profile' | 'checklists'>('attendance');
-  const [leaveForm, setLeaveForm] = useState({ start: '', end: '', reason: '' });
+  const buildLeaveTemplate = (employee: User) =>
+    `Leave Application\n\nReason:\n\nRegards,\n${employee.name}\nID: ${employee.employeeId}`;
+  const [leaveApplication, setLeaveApplication] = useState(buildLeaveTemplate(user));
   const [currentTime, setCurrentTime] = useState(new Date());
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  const isSameMonth = (dateStr: string, target: Date) => {
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) {
+      return false;
+    }
+    return date.getFullYear() === target.getFullYear() && date.getMonth() === target.getMonth();
+  };
+
   const myProfile = essProfiles.find(p => p.userId === user.id) || {
     userId: user.id,
-    bankName: '',
-    accountNumber: '',
-    accountName: '',
     emergencyContactName: '',
     emergencyContactPhone: '',
     emergencyContactRelation: ''
@@ -41,16 +50,12 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     setEditProfile(myProfile);
   }, [essProfiles, user.id]);
 
+  useEffect(() => {
+    setLeaveApplication(buildLeaveTemplate(user));
+  }, [user.id, user.name, user.employeeId]);
+
   const handleESSUpdate = () => {
     onUpdateESS(editProfile);
-
-    // Automatically update checklist if bank name is provided
-    if (editProfile.bankName && editProfile.accountNumber) {
-      const updatedItems = myChecklist.items.map(item =>
-        item.id === '2' ? { ...item, completed: true } : item
-      );
-      onUpdateChecklist({ ...myChecklist, items: updatedItems });
-    }
 
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
@@ -72,7 +77,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     type: 'Onboarding',
     items: [
       { id: '1', label: 'Upload ID Documents', completed: false },
-      { id: '2', label: 'Submit Bank Details', completed: false },
+      { id: '2', label: 'Submit Emergency Details', completed: false },
       { id: '3', label: 'Laptop Provisioning', completed: false },
       { id: '4', label: 'Office Tour', completed: false }
     ]
@@ -83,10 +88,32 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     return () => clearInterval(t);
   }, []);
 
-  const today = currentTime.toISOString().split('T')[0];
-  const activeRecord = records.find(r => r.userId === user.id && r.date === today);
+  const formatLiveDuration = (totalSeconds: number) => {
+    const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+    const hours = Math.floor(safeSeconds / 3600);
+    const minutes = Math.floor((safeSeconds % 3600) / 60);
+    const seconds = safeSeconds % 60;
+    return `${hours}h ${minutes}m ${seconds}s`;
+  };
+
+  const activeRecord = [...records].reverse().find(r => r.userId === user.id && !r.checkOut);
+  const shiftDate = getShiftDateString(currentTime, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+  const hasShiftRecord = records.some(r => r.userId === user.id && r.date === shiftDate);
+  const shiftLocked = hasShiftRecord && !activeRecord;
   const myLeaves = leaves.filter(l => l.userId === user.id).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
   const weeklyOT = calculateWeeklyOvertime(user.id, records);
+  const workMode = user.workMode || 'Onsite';
+  const canTrack = workMode === 'Remote' || isWifiConnected;
+  const activeSeconds = activeRecord && !activeRecord.checkOut
+    ? (currentTime.getTime() - new Date(activeRecord.checkIn).getTime()) / 1000
+    : 0;
+  const lateAllowance = 3;
+  const lateCountThisMonth = records.filter(r => r.userId === user.id && r.status === 'Late' && isSameMonth(r.date, currentTime)).length;
+  const lateRemaining = Math.max(0, lateAllowance - lateCountThisMonth);
+  const monthlySalary = (Number(user.basicSalary) || 0) + (Number(user.allowances) || 0) || (Number(user.salary) || 0);
+  const dailySalary = monthlySalary ? Math.round(monthlySalary / 30) : null;
+  const paidLeavesThisMonth = leaves.filter(l => l.userId === user.id && (l.isPaid ?? true) && isSameMonth(l.startDate, currentTime)).length;
+  const paidLeaveRemaining = Math.max(0, 1 - paidLeavesThisMonth);
 
   const toggleChecklistItem = (itemId: string) => {
     const updatedItems = myChecklist.items.map(item =>
@@ -104,6 +131,11 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
             <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1 rounded-full">{user.position || 'Genral Staff'}</p>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ID: {user.employeeId}</p>
           </div>
+          {(user.grade || user.teamLead) && (
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
+              {user.grade ? `Grade: ${user.grade}` : ''}{user.grade && user.teamLead ? ' • ' : ''}{user.teamLead ? `Team Lead: ${user.teamLead}` : ''}
+            </p>
+          )}
         </div>
         <div className="flex p-1 bg-slate-100 rounded-2xl overflow-x-auto max-w-full">
           {(['attendance', 'leaves', 'profile', 'checklists'] as const).map(t => (
@@ -122,8 +154,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-4 space-y-8">
             <div className="glass-card rounded-[3rem] p-10 text-center relative overflow-hidden border-2 border-white shadow-2xl">
-              <div className={`absolute top-0 right-0 px-5 py-2 text-[9px] font-black uppercase tracking-widest ${isWifiConnected ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
-                {isWifiConnected ? 'Network Secure' : 'Access Restricted'}
+              <div className={`absolute top-0 right-0 px-5 py-2 text-[9px] font-black uppercase tracking-widest ${workMode === 'Remote' ? 'bg-slate-900 text-white' : isWifiConnected ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                {workMode === 'Remote' ? 'Remote Mode' : isWifiConnected ? 'Network Secure' : 'Access Restricted'}
               </div>
               <h1 className="text-5xl font-black text-slate-900 mt-4">{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</h1>
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-8 mt-2">Local Timezone</p>
@@ -134,11 +166,48 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                 <p className="text-[8px] font-bold text-blue-400 uppercase mt-1">Calculated over 40h standard</p>
               </div>
 
-              {!isWifiConnected ? (
+              <div className="mb-8 p-6 bg-emerald-50/60 rounded-[2rem] border border-emerald-100">
+                <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Live Session</p>
+                {activeRecord && !activeRecord.checkOut ? (
+                  <>
+                    <p className="text-2xl font-black text-emerald-600">{formatLiveDuration(activeSeconds)}</p>
+                    <p className="text-[8px] font-bold text-emerald-500 uppercase mt-1">
+                      Started at {new Date(activeRecord.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm font-bold text-emerald-400 uppercase">No active session</p>
+                )}
+              </div>
+
+              {workMode === 'Remote' ? (
+                <div className="mb-8 p-6 bg-amber-50/60 rounded-[2rem] border border-amber-100">
+                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Remote Hours</p>
+                  <p className="text-sm font-black text-amber-600">Late policy disabled</p>
+                  <p className="text-[8px] font-bold text-amber-400 uppercase mt-1">Track 8h daily target</p>
+                </div>
+              ) : (
+                <div className="mb-8 p-6 bg-amber-50/60 rounded-[2rem] border border-amber-100">
+                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Late Allowance (Monthly)</p>
+                  <p className="text-2xl font-black text-amber-600">{lateRemaining} left</p>
+                  <p className="text-[8px] font-bold text-amber-400 uppercase mt-1">{lateCountThisMonth}/{lateAllowance} used this month</p>
+                  {lateRemaining === 0 && (
+                    <p className="text-[9px] font-black text-rose-600 mt-2">
+                      1 day salary deduction applied{dailySalary ? ` (~PKR ${dailySalary.toLocaleString()})` : ''}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!canTrack ? (
                 <div className="p-6 bg-rose-50 rounded-[2rem] text-xs font-bold text-rose-600">Connect to Office Wi-Fi</div>
               ) : (
-                <button onClick={activeRecord && !activeRecord.checkOut ? onCheckOut : onCheckIn} disabled={activeRecord && activeRecord.checkOut ? true : false} className={`w-full py-6 rounded-[2rem] font-black text-xl shadow-xl transition-all ${activeRecord && !activeRecord.checkOut ? 'bg-rose-600 text-white shadow-rose-200' : 'premium-gradient text-white shadow-blue-200 disabled:opacity-30'}`}>
-                  {activeRecord && !activeRecord.checkOut ? 'Check Out' : activeRecord?.checkOut ? 'Shift Done' : 'Check In'}
+                <button
+                  onClick={activeRecord ? onCheckOut : onCheckIn}
+                  disabled={!canTrack || shiftLocked}
+                  className={`w-full py-6 rounded-[2rem] font-black text-xl shadow-xl transition-all ${activeRecord ? 'bg-rose-600 text-white shadow-rose-200' : 'premium-gradient text-white shadow-blue-200 disabled:opacity-30'}`}
+                >
+                  {activeRecord ? 'Check Out' : shiftLocked ? 'Shift Done' : 'Check In'}
                 </button>
               )}
             </div>
@@ -178,21 +247,26 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
           <div className="glass-card rounded-[3rem] p-10 space-y-8">
             <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Apply for Leave</h3>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Start Date</label>
-                  <input type="date" value={leaveForm.start} onChange={e => setLeaveForm({ ...leaveForm, start: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">End Date</label>
-                  <input type="date" value={leaveForm.end} onChange={e => setLeaveForm({ ...leaveForm, end: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
-                </div>
+              <div className="space-y-1">
+                <label htmlFor="leave-application" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Leave Application (Template)</label>
+                <textarea id="leave-application" name="leaveApplication" value={leaveApplication} onChange={e => setLeaveApplication(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-40 resize-none" />
               </div>
               <div className="space-y-1">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Reason</label>
-                <textarea placeholder="Briefly explain your request..." value={leaveForm.reason} onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-32 resize-none" />
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Paid leave remaining this month: {paidLeaveRemaining}</p>
+                {paidLeaveRemaining === 0 && (
+                  <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">This request will be unpaid</p>
+                )}
               </div>
-              <button onClick={() => { onSubmitLeave(leaveForm.start, leaveForm.end, leaveForm.reason); setLeaveForm({ start: '', end: '', reason: '' }); }} className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl">Submit Application</button>
+              <button
+                onClick={() => {
+                  const todayStr = getLocalDateString(new Date());
+                  onSubmitLeave(todayStr, todayStr, leaveApplication);
+                  setLeaveApplication(buildLeaveTemplate(user));
+                }}
+                className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl"
+              >
+                Submit Application
+              </button>
             </div>
           </div>
           <div className="space-y-4 h-[600px] overflow-y-auto pr-4">
@@ -204,7 +278,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                 <div key={l.id} className="glass-card rounded-[2rem] p-8 border-l-8 border-blue-500 hover:scale-[1.01] transition-all">
                   <div className="flex justify-between items-center mb-4">
                     <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{l.startDate} - {l.endDate}</span>
-                    <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{l.status}</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{l.status}</span>
+                      <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.isPaid === false ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}>{l.isPaid === false ? 'Unpaid' : 'Paid'}</span>
+                    </div>
                   </div>
                   <p className="text-sm font-bold text-slate-800">"{l.reason}"</p>
                   <p className="text-[8px] font-black text-slate-300 uppercase mt-4">Submitted on {new Date(l.submittedAt).toLocaleDateString()}</p>
@@ -220,37 +297,19 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
           <div className="lg:col-span-8 space-y-8">
             <div className="glass-card rounded-[3rem] p-10 space-y-10">
               <div>
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Financial Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Bank Name</label>
-                    <input type="text" value={editProfile.bankName} onChange={e => setEditProfile({ ...editProfile, bankName: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Account Number</label>
-                    <input type="text" value={editProfile.accountNumber} onChange={e => setEditProfile({ ...editProfile, accountNumber: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
-                  </div>
-                  <div className="space-y-1 md:col-span-2">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Account Holder Name</label>
-                    <input type="text" value={editProfile.accountName} onChange={e => setEditProfile({ ...editProfile, accountName: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
-                  </div>
-                </div>
-              </div>
-
-              <div>
                 <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Emergency Contact</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Contact Name</label>
-                    <input type="text" value={editProfile.emergencyContactName} onChange={e => setEditProfile({ ...editProfile, emergencyContactName: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
+                    <label htmlFor="ess-emergency-name" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Contact Name</label>
+                    <input id="ess-emergency-name" name="emergencyContactName" type="text" value={editProfile.emergencyContactName} onChange={e => setEditProfile({ ...editProfile, emergencyContactName: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Relationship</label>
-                    <input type="text" value={editProfile.emergencyContactRelation} onChange={e => setEditProfile({ ...editProfile, emergencyContactRelation: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
+                    <label htmlFor="ess-emergency-relation" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Relationship</label>
+                    <input id="ess-emergency-relation" name="emergencyContactRelation" type="text" value={editProfile.emergencyContactRelation} onChange={e => setEditProfile({ ...editProfile, emergencyContactRelation: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
                   </div>
                   <div className="space-y-1 md:col-span-2">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Phone Number</label>
-                    <input type="text" value={editProfile.emergencyContactPhone} onChange={e => setEditProfile({ ...editProfile, emergencyContactPhone: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
+                    <label htmlFor="ess-emergency-phone" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Phone Number</label>
+                    <input id="ess-emergency-phone" name="emergencyContactPhone" type="text" value={editProfile.emergencyContactPhone} onChange={e => setEditProfile({ ...editProfile, emergencyContactPhone: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
                   </div>
                 </div>
               </div>
@@ -270,7 +329,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
           <div className="lg:col-span-4 space-y-6">
             <div className="glass-card rounded-[3rem] p-10 bg-blue-600 text-white shadow-blue-200 shadow-2xl">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">Monthly Compensation</p>
-              <h2 className="text-4xl font-black mt-2">PKR {user.salary?.toLocaleString() || '0'}</h2>
+              <h2 className="text-4xl font-black mt-2">PKR {monthlySalary.toLocaleString()}</h2>
               <div className="mt-6 pt-6 border-t border-white/10 flex items-center justify-between">
                 <div>
                   <p className="text-[8px] font-black uppercase tracking-widest opacity-60">Status</p>

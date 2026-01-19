@@ -9,11 +9,20 @@ export enum Role {
 export interface User {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
+  dob?: string;
+  phone?: string;
   email: string;
   role: Role;
   employeeId: string;
   password?: string;
   salary?: number;
+  basicSalary?: number;
+  allowances?: number;
+  workMode?: 'Onsite' | 'Remote';
+  grade?: string;
+  teamLead?: string;
   position?: string;
 }
 
@@ -41,13 +50,11 @@ export interface LeaveRequest {
   reason: string;
   status: LeaveStatus;
   submittedAt: string;
+  isPaid?: boolean;
 }
 
 export interface ESSProfile {
   userId: string;
-  bankName: string;
-  accountNumber: string;
-  accountName: string;
   emergencyContactName: string;
   emergencyContactPhone: string;
   emergencyContactRelation: string;

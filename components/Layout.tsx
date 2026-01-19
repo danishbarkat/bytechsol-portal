@@ -1,5 +1,6 @@
 
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import logoUrl from '../asset/public/logo.svg';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -8,23 +9,39 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
+  const formatter = useMemo(() => {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Karachi',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  }, []);
+  const [currentTime, setCurrentTime] = useState(() => formatter.format(new Date()));
+
+  useEffect(() => {
+    const tick = () => setCurrentTime(formatter.format(new Date()));
+    const interval = window.setInterval(tick, 1000);
+    return () => window.clearInterval(interval);
+  }, [formatter]);
+
   return (
     <div className="min-h-screen flex flex-col">
       <nav className="bg-white/70 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-20 items-center">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 premium-gradient rounded-xl flex items-center justify-center shadow-lg shadow-blue-200">
-                <span className="text-white font-extrabold text-xl">B</span>
-              </div>
-              <div>
-                <span className="text-2xl font-black tracking-tighter text-slate-900">
-                  BYTECH<span className="text-blue-600">SOL</span>
-                </span>
-                <p className="text-[10px] font-bold text-slate-400 tracking-[0.2em] uppercase -mt-1">Enterprise</p>
-              </div>
-            </div>
+          <div className="flex items-center">
+            <img src={logoUrl} alt="BytechSol" className="h-10 w-auto" />
+          </div>
             <div className="flex items-center space-x-6">
+              <div className="text-right border-r border-slate-200 pr-4 sm:pr-6">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">PKT Time</p>
+                <p className="text-sm font-black text-slate-900">{currentTime}</p>
+              </div>
               <div className="text-right hidden sm:block border-r border-slate-200 pr-6">
                 <p className="text-sm font-bold text-slate-900">{user.name}</p>
                 <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">{user.role}</p>

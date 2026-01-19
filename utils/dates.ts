@@ -73,3 +73,9 @@ export const getShiftDateString = (
   }
   return localDate;
 };
+
+export const getWeekdayLabel = (dateStr: string, timeZone = 'Asia/Karachi'): string => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const utcDate = new Date(Date.UTC(year, month - 1, day));
+  return new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(utcDate);
+};

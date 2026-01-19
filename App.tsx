@@ -23,7 +23,7 @@ import {
   deleteUserData
 } from './utils/storage';
 import { isSupabaseConfigured } from './utils/supabase';
-import { getLocalDateString, getShiftAdjustedMinutes, getShiftDateString } from './utils/dates';
+import { getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel } from './utils/dates';
 import Layout from './components/Layout';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeeDashboard from './components/EmployeeDashboard';
@@ -210,12 +210,19 @@ const App: React.FC = () => {
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const normalizedId = normalizeEmployeeId(employeeIdInput);
-    let foundUser = users.find(u => normalizeEmployeeId(u.employeeId || '') === normalizedId && u.password === password);
+    const credential = password.trim();
+    let foundUser = users.find(
+      u =>
+        normalizeEmployeeId(u.employeeId || '') === normalizedId &&
+        (u.password === credential || (u.pin && u.pin === credential))
+    );
     if (!foundUser) {
       const inputSuffix = extractEmployeeSuffix(normalizedId);
       if (inputSuffix) {
         const suffixMatches = users.filter(
-          u => extractEmployeeSuffix(u.employeeId || '') === inputSuffix && u.password === password
+          u =>
+            extractEmployeeSuffix(u.employeeId || '') === inputSuffix &&
+            (u.password === credential || (u.pin && u.pin === credential))
         );
         if (suffixMatches.length === 1) {
           foundUser = suffixMatches[0];
@@ -250,6 +257,22 @@ const App: React.FC = () => {
       APP_CONFIG.SHIFT_START,
       APP_CONFIG.SHIFT_END
     );
+    const shiftDate = getShiftDateString(checkInTime, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
+    const userName = (user?.name || '').toLowerCase();
+    const exemptNames = APP_CONFIG.FRIDAY_LATE_EXEMPT_NAMES.map(name => name.toLowerCase());
+    const isExemptUser = exemptNames.some(name => userName.includes(name));
+    const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
+    const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+    const startTotal = startHour * 60 + startMinute;
+    const endTotal = endHour * 60 + endMinute;
+    const isOvernight = endTotal <= startTotal;
+    const [cutoffHour, cutoffMinute] = APP_CONFIG.FRIDAY_LATE_EXEMPT_CUTOFF.split(':').map(Number);
+    const cutoffBase = cutoffHour * 60 + cutoffMinute;
+    const cutoffAdjusted = isOvernight && cutoffBase < endTotal ? cutoffBase + 24 * 60 : cutoffBase;
+    if (isFriday && isExemptUser && currentMinutes <= cutoffAdjusted) {
+      return 'On-Time';
+    }
     const relaxation = APP_CONFIG.GRACE_PERIOD_MINS;
     if (currentMinutes < startMinutes - relaxation) return 'Early';
     if (currentMinutes <= startMinutes + relaxation) return 'On-Time';
@@ -460,7 +483,7 @@ const App: React.FC = () => {
                 </div>
               </div>
               <div className="space-y-1">
-                <label htmlFor="login-password" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Security Key</label>
+                <label htmlFor="login-password" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Security Key / PIN</label>
                 <div className="relative">
                   <input
                     id="login-password"
@@ -470,7 +493,7 @@ const App: React.FC = () => {
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     className="w-full px-6 py-5 pr-20 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 transition-all"
-                    placeholder="Security Key"
+                    placeholder="Security Key or 4-digit PIN"
                     autoComplete="current-password"
                   />
                   <button

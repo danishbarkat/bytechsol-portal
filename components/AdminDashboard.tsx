@@ -35,6 +35,8 @@ const generateTempPassword = () => {
   return value;
 };
 
+const normalizePin = (value?: string) => (value || '').replace(/\D/g, '').slice(0, 4);
+
 const splitName = (name?: string) => {
   const parts = (name || '').trim().split(/\s+/);
   const firstName = parts[0] || '';
@@ -700,6 +702,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const basicSalary = Number(userForm.basicSalary) || 0;
     const allowances = Number(userForm.allowances) || 0;
     const totalSalary = basicSalary + allowances;
+    const pin = normalizePin(userForm.pin);
     if (isAddingUser) {
       const newUserId = Math.random().toString(36).substr(2, 9);
       const newUser: User = {
@@ -716,6 +719,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         salary: totalSalary,
         basicSalary,
         allowances,
+        pin: pin || undefined,
         workMode: userForm.workMode || 'Onsite',
         grade: userForm.grade || '',
         teamLead: userForm.teamLead || '',
@@ -745,6 +749,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         salary: totalSalary,
         basicSalary,
         allowances,
+        pin: pin || undefined,
         workMode: userForm.workMode || editingUser.workMode || 'Onsite',
         grade: userForm.grade || editingUser.grade || '',
         teamLead: userForm.teamLead || editingUser.teamLead || ''
@@ -1355,6 +1360,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </button>
                     )}
                   </div>
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="user-pin" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">4 Digit PIN (Optional)</label>
+                  <input
+                    id="user-pin"
+                    name="pin"
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={userForm.pin || ''}
+                    onChange={e => setUserForm({ ...userForm, pin: normalizePin(e.target.value) })}
+                    className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"
+                  />
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Employees can log in with PIN instead of password.</p>
                 </div>
                 <div className="space-y-1"><label htmlFor="user-employee-id" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label><input id="user-employee-id" name="employeeId" required readOnly type="text" value={formatEmployeeId(userForm.firstName, userForm.lastName, employeeIdSeed)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent outline-none font-bold text-slate-800 text-slate-500" /></div>
                 <div className="space-y-1"><label htmlFor="user-basic-salary" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Basic Salary (Monthly)</label><input id="user-basic-salary" name="basicSalary" type="number" value={userForm.basicSalary || ''} onChange={e => setUserForm({ ...userForm, basicSalary: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>

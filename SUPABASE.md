@@ -27,6 +27,7 @@ create table if not exists users (
   basic_salary numeric,
   allowances numeric,
   salary_hidden boolean,
+  pin_code text,
   work_mode text,
   grade text,
   team_lead text,

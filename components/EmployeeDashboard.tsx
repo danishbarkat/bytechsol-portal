@@ -5,6 +5,52 @@ import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes } from 
 import { APP_CONFIG } from '../constants';
 import { supabase, isSupabaseConfigured } from '../utils/supabase';
 
+const calculateTotalSalary = (basic?: number, allowances?: number, fallback?: number) => {
+  const baseValue = Number(basic) || 0;
+  const allowanceValue = Number(allowances) || 0;
+  const total = baseValue + allowanceValue;
+  return total || (Number(fallback) || 0);
+};
+
+const parseDateUtc = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+};
+
+const countLeaveDaysInMonth = (leave: LeaveRequest, target: Date) => {
+  if (!leave.startDate || !leave.endDate) return 0;
+  const monthStart = new Date(Date.UTC(target.getFullYear(), target.getMonth(), 1));
+  const monthEnd = new Date(Date.UTC(target.getFullYear(), target.getMonth() + 1, 0));
+  const leaveStart = parseDateUtc(leave.startDate);
+  const leaveEnd = parseDateUtc(leave.endDate);
+  if (leaveEnd < monthStart || leaveStart > monthEnd) return 0;
+  const overlapStart = leaveStart > monthStart ? leaveStart : monthStart;
+  const overlapEnd = leaveEnd < monthEnd ? leaveEnd : monthEnd;
+  const dayMs = 24 * 60 * 60 * 1000;
+  return Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / dayMs) + 1;
+};
+
+const getShiftMetrics = (shiftStart: string, shiftEnd: string) => {
+  const [startHour, startMinute] = shiftStart.split(':').map(Number);
+  const [endHour, endMinute] = shiftEnd.split(':').map(Number);
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+  const isOvernight = endMinutes <= startMinutes;
+  const endMinutesAdjusted = isOvernight ? endMinutes + 24 * 60 : endMinutes;
+  const durationMinutes = Math.max(0, endMinutesAdjusted - startMinutes);
+  const durationHours = durationMinutes > 0 ? durationMinutes / 60 : 8;
+  return { startMinutes, endMinutesAdjusted, durationHours };
+};
+
+const calculateMonthlyTax = (grossPay: number) => {
+  const salary = Math.max(0, grossPay);
+  if (salary <= 50_000) return 0;
+  if (salary <= 100_000) return (salary - 50_000) * 0.01;
+  return 500 + (salary - 100_000) * 0.05;
+};
+
+const formatCurrency = (value: number) => `PKR ${Math.round(Number.isFinite(value) ? value : 0).toLocaleString()}`;
+
 interface EmployeeDashboardProps {
   user: User;
   records: AttendanceRecord[];
@@ -235,12 +281,109 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const lateAllowance = 3;
   const lateCountThisMonth = records.filter(r => r.userId === user.id && r.status === 'Late' && isSameMonth(r.date, currentTime)).length;
   const lateRemaining = Math.max(0, lateAllowance - lateCountThisMonth);
-  const monthlySalary = (Number(user.basicSalary) || 0) + (Number(user.allowances) || 0) || (Number(user.salary) || 0);
+  const monthlySalary = calculateTotalSalary(user.basicSalary, user.allowances, user.salary);
   const dailySalary = monthlySalary ? Math.round(monthlySalary / 30) : null;
   const paidLeavesThisMonth = leaves.filter(
     l => l.userId === user.id && (l.isPaid ?? true) && l.status !== 'Cancelled' && isSameMonth(l.startDate, currentTime)
   ).length;
   const paidLeaveRemaining = Math.max(0, 1 - paidLeavesThisMonth);
+  const { startMinutes: shiftStartMinutes, endMinutesAdjusted: shiftEndMinutes, durationHours: shiftHours } = getShiftMetrics(
+    APP_CONFIG.SHIFT_START,
+    APP_CONFIG.SHIFT_END
+  );
+
+  const getOvertimeMinutesForRecord = (record: AttendanceRecord) => {
+    if (Number.isFinite(record.overtimeHours)) {
+      return (record.overtimeHours || 0) * 60;
+    }
+    if (!record.checkIn || !record.checkOut) return 0;
+    const checkInDate = new Date(record.checkIn);
+    const checkOutDate = new Date(record.checkOut);
+    const checkInMinutes = getShiftAdjustedMinutes(
+      checkInDate,
+      APP_CONFIG.SHIFT_START,
+      APP_CONFIG.SHIFT_END
+    ).currentMinutes;
+    const checkOutMinutes = getShiftAdjustedMinutes(
+      checkOutDate,
+      APP_CONFIG.SHIFT_START,
+      APP_CONFIG.SHIFT_END
+    ).currentMinutes;
+    const earlyMinutes = Math.max(0, shiftStartMinutes - checkInMinutes);
+    const lateMinutes = Math.max(0, checkOutMinutes - shiftEndMinutes);
+    return earlyMinutes + lateMinutes;
+  };
+
+  const monthLabel = currentTime.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthRecords = records.filter(r => r.userId === user.id && isSameMonth(r.date, currentTime));
+  const overtimeMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getOvertimeMinutesForRecord(record), 0);
+  const overtimeHoursThisMonth = overtimeMinutesThisMonth / 60;
+  const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / shiftHours : 0;
+  const overtimePay = overtimeHoursThisMonth * hourlyRate;
+  const unpaidLeaveDays = leaves
+    .filter(l => l.userId === user.id && l.status === 'Approved' && l.isPaid === false)
+    .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, currentTime), 0);
+  const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
+  const baseAfterLeave = Math.max(0, monthlySalary - leaveDeduction);
+  const monthlyTax = calculateMonthlyTax(baseAfterLeave);
+  const salaryAfterTax = Math.max(0, baseAfterLeave - monthlyTax);
+  const netPay = salaryAfterTax + overtimePay;
+
+  const downloadSalarySlip = () => {
+    const monthKey = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}`;
+    const slipId = `${user.employeeId}_${monthKey}`;
+    const basicPay = Number(user.basicSalary) || (Number(user.salary) || 0);
+    const allowancePay = Number(user.allowances) || 0;
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Salary Slip ${slipId}</title>
+          <style>
+            body { font-family: Arial, sans-serif; background: #f8fafc; color: #0f172a; padding: 24px; }
+            .card { max-width: 700px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; }
+            h1 { font-size: 20px; margin: 0 0 6px; text-align: center; }
+            .meta { font-size: 12px; text-align: center; color: #64748b; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
+            th { text-align: left; background: #f1f5f9; text-transform: uppercase; letter-spacing: 0.1em; font-size: 10px; color: #64748b; }
+            td:last-child { text-align: right; font-weight: 700; }
+            .total { font-weight: 800; }
+            .summary { margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 16px; display: flex; justify-content: space-between; align-items: center; }
+            .net { font-size: 18px; font-weight: 800; color: #2563eb; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>Salary Slip</h1>
+            <div class="meta">Month: ${monthLabel} • Employee: ${user.name} • ID: ${user.employeeId}</div>
+            <table>
+              <tr><th>Earnings</th><th>Amount</th></tr>
+              <tr><td>Basic Salary</td><td>${formatCurrency(basicPay)}</td></tr>
+              <tr><td>Allowances</td><td>${formatCurrency(allowancePay)}</td></tr>
+              <tr><td>Overtime (${overtimeHoursThisMonth.toFixed(2)} hrs)</td><td>${formatCurrency(overtimePay)}</td></tr>
+              <tr><th>Deductions</th><th>Amount</th></tr>
+              <tr><td>Unpaid Leave (${unpaidLeaveDays} days)</td><td>- ${formatCurrency(leaveDeduction)}</td></tr>
+              <tr><td>Tax (PK progressive)</td><td>- ${formatCurrency(monthlyTax)}</td></tr>
+              <tr><td class="total">Taxable Salary</td><td class="total">${formatCurrency(baseAfterLeave)}</td></tr>
+              <tr><td class="total">Salary After Tax</td><td class="total">${formatCurrency(salaryAfterTax)}</td></tr>
+              <tr><td class="total">Net Pay (with overtime)</td><td class="total">${formatCurrency(netPay)}</td></tr>
+            </table>
+            <div class="summary">
+              <div>Overtime is not taxed</div>
+              <div class="net">${formatCurrency(netPay)}</div>
+            </div>
+          </div>
+        </body>
+      </html>`;
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Salary_Slip_${slipId}.html`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
 
   const getDisplayStatus = (record: AttendanceRecord) => {
     if (user.workMode === 'Remote') return record.status || 'On-Time';
@@ -585,6 +728,53 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 </div>
               </div>
+            </div>
+
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Salary Slip</h3>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{monthLabel}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={downloadSalarySlip}
+                  className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition-all"
+                >
+                  Download
+                </button>
+              </div>
+              <div className="mt-6 space-y-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-500">Base Salary</span>
+                  <span className="font-black text-slate-900">{formatCurrency(monthlySalary)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-500">Unpaid Leaves ({unpaidLeaveDays} days)</span>
+                  <span className="font-black text-rose-500">- {formatCurrency(leaveDeduction)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-500">Overtime ({overtimeHoursThisMonth.toFixed(2)} hrs)</span>
+                  <span className="font-black text-emerald-600">+ {formatCurrency(overtimePay)}</span>
+                </div>
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <span className="font-bold text-slate-600">Taxable Salary</span>
+                  <span className="font-black text-slate-900">{formatCurrency(baseAfterLeave)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-500">Tax (PK progressive)</span>
+                  <span className="font-black text-amber-600">- {formatCurrency(monthlyTax)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-600">Salary After Tax</span>
+                  <span className="font-black text-slate-900">{formatCurrency(salaryAfterTax)}</span>
+                </div>
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                  <span className="font-black text-slate-900">Salary with Overtime</span>
+                  <span className="font-black text-blue-600">{formatCurrency(netPay)}</span>
+                </div>
+              </div>
+              <p className="mt-5 text-[8px] font-bold text-slate-300 uppercase text-center">Overtime is not taxed</p>
             </div>
 
             <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">

@@ -314,14 +314,20 @@ const App: React.FC = () => {
     const startMinutes = startHour * 60 + startMinute;
     const endMinutes = endHour * 60 + endMinute;
     const isOvernight = endMinutes <= startMinutes;
+    const adjustedEnd = isOvernight ? endMinutes + 24 * 60 : endMinutes;
+    const checkInAdjusted = getShiftAdjustedMinutes(
+      checkInTime,
+      APP_CONFIG.SHIFT_START,
+      APP_CONFIG.SHIFT_END
+    ).currentMinutes;
     const checkOutMinutes = getLocalTimeMinutes(now);
     const adjustedCheckOut = isOvernight && checkOutMinutes < endMinutes
       ? checkOutMinutes + 24 * 60
       : checkOutMinutes;
-    const adjustedEnd = isOvernight ? endMinutes + 24 * 60 : endMinutes;
-    const overtimeHours = adjustedCheckOut > adjustedEnd
-      ? (adjustedCheckOut - adjustedEnd) / 60
-      : undefined;
+    const earlyMinutes = Math.max(0, startMinutes - checkInAdjusted);
+    const lateMinutes = Math.max(0, adjustedCheckOut - adjustedEnd);
+    const overtimeMinutes = earlyMinutes + lateMinutes;
+    const overtimeHours = overtimeMinutes > 0 ? overtimeMinutes / 60 : undefined;
     const updated = records.map(r =>
       r.id === activeRecord.id
         ? { ...r, checkOut: now.toISOString(), totalHours: diff, overtimeHours }

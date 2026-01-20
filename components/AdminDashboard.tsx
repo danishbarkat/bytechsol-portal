@@ -54,6 +54,13 @@ const calculateTotalSalary = (basic?: number, allowances?: number, fallback?: nu
   return total || (Number(fallback) || 0);
 };
 
+const calculateMonthlyTax = (grossPay: number) => {
+  const salary = Math.max(0, grossPay);
+  if (salary <= 50_000) return 0;
+  if (salary <= 100_000) return (salary - 50_000) * 0.01;
+  return 500 + (salary - 100_000) * 0.05;
+};
+
 type DocumentType = 'salary-slip' | 'offer-letter' | 'appointment-letter' | 'experience-letter';
 
 const escapeHtml = (value: string) =>
@@ -152,7 +159,13 @@ const getRoleHighlights = (roleValue: string): string[] => {
   ];
 };
 
-const buildDocumentHtml = (type: DocumentType, data: Record<string, string>, logoSrc: string, signatureSrc: string | null) => {
+const buildDocumentHtml = (
+  type: DocumentType,
+  data: Record<string, string>,
+  logoSrc: string,
+  signatureSrc: string | null,
+  showNetPay: boolean
+) => {
   const safe = (key: string, fallback = '-') => escapeHtml(data[key] || fallback);
   const safeUpper = (key: string, fallback = '-') =>
     escapeHtml((data[key] || fallback).toUpperCase());
@@ -172,12 +185,13 @@ const buildDocumentHtml = (type: DocumentType, data: Record<string, string>, log
   const homeAllowance = Number(data.homeAllowance || 0);
   const travelAllowance = Number(data.travelAllowance || 0);
   const internetAllowance = Number(data.internetAllowance || 0);
-  const taxRate = Math.max(0, Number(data.taxRate || 0));
   const otherDeductions = Number(data.otherDeductions || 0);
   const totalEarnings = basicPay + homeAllowance + travelAllowance + internetAllowance;
-  const tax = Math.round((totalEarnings * taxRate) / 100);
+  const tax = Math.round(calculateMonthlyTax(totalEarnings));
   const totalDeductions = tax + otherDeductions;
   const netPay = Math.max(0, totalEarnings - totalDeductions);
+  const netPayDisplay = showNetPay ? formatCurrency(netPay) : 'Restricted';
+  const netPayWords = showNetPay ? `${numberToWords(netPay)} Only` : 'Restricted';
 
   const header = `
     <div style="position:relative;overflow:hidden;border-radius:16px;background:linear-gradient(120deg,#e0edff 0%,#f8fafc 60%);padding:16px 18px 22px 18px;margin-bottom:6px;">
@@ -264,7 +278,7 @@ const buildDocumentHtml = (type: DocumentType, data: Record<string, string>, log
           <tr>
             <td style="padding:8px 10px;">Basic Pay</td>
             <td style="padding:8px 10px;text-align:right;font-weight:700;">${formatCurrency(basicPay)}</td>
-            <td style="padding:8px 10px;">Tax (${taxRate}%)</td>
+            <td style="padding:8px 10px;">Tax (PK progressive)</td>
             <td style="padding:8px 10px;text-align:right;font-weight:700;">${formatCurrency(tax)}</td>
           </tr>
           <tr>
@@ -293,14 +307,14 @@ const buildDocumentHtml = (type: DocumentType, data: Record<string, string>, log
           </tr>
         </table>
         <div style="font-size:11px;color:#64748b;margin-top:10px;">
-          Tax is calculated at ${taxRate}% based on applicable Government of Pakistan tax slabs.
+          Tax is calculated using progressive Pakistan slabs.
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:16px;">
           <div style="font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.2em;">Net Pay</div>
-          <div style="font-size:18px;font-weight:800;color:#2563eb;">${formatCurrency(netPay)}</div>
+          <div style="font-size:18px;font-weight:800;color:#2563eb;">${netPayDisplay}</div>
         </div>
-        <div style="text-align:center;font-size:20px;font-weight:800;color:#0f172a;margin-top:12px;">${formatCurrency(netPay).replace('PKR ', '')}</div>
-        <div style="text-align:center;font-size:12px;color:#64748b;margin-top:6px;">${numberToWords(netPay)} Only</div>
+        <div style="text-align:center;font-size:20px;font-weight:800;color:#0f172a;margin-top:12px;">${showNetPay ? formatCurrency(netPay).replace('PKR ', '') : 'Restricted'}</div>
+        <div style="text-align:center;font-size:12px;color:#64748b;margin-top:6px;">${netPayWords}</div>
         <div style="text-align:center;font-size:11px;color:#94a3b8;margin-top:14px;">This is a system generated payslip. No stamp or signature is required.</div>
         ${footer}
       ${containerEnd}
@@ -536,6 +550,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const documentUsers = salarySlipSelfOnly
     ? [user]
     : visibleUsers.filter(u => u.role !== Role.SUPERADMIN);
+  const docEarningsTotal = (Number(docForm.basicPay) || 0)
+    + (Number(docForm.homeAllowance) || 0)
+    + (Number(docForm.travelAllowance) || 0)
+    + (Number(docForm.internetAllowance) || 0);
+  const docTaxAmount = Math.round(calculateMonthlyTax(docEarningsTotal));
 
   useEffect(() => {
     setLeaveApplication(buildLeaveTemplate(user));
@@ -637,8 +656,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, []);
 
   const documentHtml = useMemo(
-    () => buildDocumentHtml(docType, docForm, logoDataUrl || logoUrl, signatureDataUrl),
-    [docType, docForm, logoDataUrl, signatureDataUrl]
+    () => buildDocumentHtml(
+      docType,
+      docForm,
+      logoDataUrl || logoUrl,
+      signatureDataUrl,
+      user.role === Role.CEO || user.role === Role.SUPERADMIN
+    ),
+    [docType, docForm, logoDataUrl, signatureDataUrl, user.role]
   );
   const docRootHtml = useMemo(() => {
     if (typeof window === 'undefined') return '';
@@ -1279,10 +1304,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <input id="doc-internet-allowance" name="internetAllowance" type="number" value={docForm.internetAllowance} onChange={e => updateDocForm('internetAllowance', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="doc-tax-rate" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Tax Percentage</label>
-                    <input id="doc-tax-rate" name="taxRate" type="number" value={docForm.taxRate} onChange={e => updateDocForm('taxRate', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Tax (PK progressive)</label>
+                    <div className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent font-black text-slate-800">
+                      PKR {docTaxAmount.toLocaleString()}
+                    </div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
-                      Tax Amount: PKR {Math.round(((Number(docForm.basicPay) || 0) + (Number(docForm.homeAllowance) || 0) + (Number(docForm.travelAllowance) || 0) + (Number(docForm.internetAllowance) || 0)) * (Math.max(0, Number(docForm.taxRate) || 0)) / 100).toLocaleString()}
+                      Calculated on total earnings.
                     </p>
                   </div>
                   <div className="space-y-1">

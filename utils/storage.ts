@@ -1,4 +1,6 @@
 import { AttendanceRecord, LeaveRequest, ESSProfile, UserChecklist, User, Role } from '../types';
+import { APP_CONFIG } from '../constants';
+import { getShiftAdjustedMinutes, getLocalTimeMinutes } from './dates';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const ATTENDANCE_KEY = 'bytechsol_attendance';
@@ -430,10 +432,33 @@ export const calculateWeeklyOvertime = (userId: string, records: AttendanceRecor
 
   const weeklyRecords = records
     .filter(r => r.userId === userId && new Date(r.date) >= startOfWeek);
-  const overtimeFromRecords = weeklyRecords.reduce((sum, r) => sum + (r.overtimeHours || 0), 0);
-  if (overtimeFromRecords > 0) {
-    return overtimeFromRecords;
-  }
+  const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
+  const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+  const isOvernight = endMinutes <= startMinutes;
+  const endAdjusted = isOvernight ? endMinutes + 24 * 60 : endMinutes;
+
+  const overtimeFromRecords = weeklyRecords.reduce((sum, r) => {
+    if (!r.checkIn || !r.checkOut) {
+      return sum + (r.overtimeHours || 0);
+    }
+    const checkInDate = new Date(r.checkIn);
+    const checkOutDate = new Date(r.checkOut);
+    const checkInAdjusted = getShiftAdjustedMinutes(
+      checkInDate,
+      APP_CONFIG.SHIFT_START,
+      APP_CONFIG.SHIFT_END
+    ).currentMinutes;
+    const checkOutRaw = getLocalTimeMinutes(checkOutDate);
+    const checkOutAdjusted = isOvernight && checkOutRaw < startMinutes
+      ? checkOutRaw + 24 * 60
+      : checkOutRaw;
+    const earlyMinutes = Math.max(0, startMinutes - checkInAdjusted);
+    const lateMinutes = Math.max(0, checkOutAdjusted - endAdjusted);
+    return sum + (earlyMinutes + lateMinutes) / 60;
+  }, 0);
+  if (overtimeFromRecords > 0) return overtimeFromRecords;
   const weeklyHours = weeklyRecords
     .reduce((sum, r) => sum + (r.totalHours || 0), 0);
 

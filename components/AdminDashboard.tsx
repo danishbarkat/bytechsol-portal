@@ -661,7 +661,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       docForm,
       logoDataUrl || logoUrl,
       signatureDataUrl,
-      user.role === Role.CEO || user.role === Role.SUPERADMIN
+      user.role === Role.CEO
     ),
     [docType, docForm, logoDataUrl, signatureDataUrl, user.role]
   );

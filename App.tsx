@@ -66,6 +66,7 @@ const App: React.FC = () => {
   const [isWifiConnected, setIsWifiConnected] = useState(false);
   const [ipStatus, setIpStatus] = useState<'checking' | 'allowed' | 'blocked'>('checking');
   const [publicIp, setPublicIp] = useState<string | null>(null);
+  const remoteLoginIds = (APP_CONFIG.REMOTE_LOGIN_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
 
   useEffect(() => {
     let active = true;
@@ -213,6 +214,12 @@ const App: React.FC = () => {
     const normalizedId = normalizeEmployeeId(employeeIdInput);
     const credential = password.trim();
     const isPin = /^\d{4}$/.test(credential);
+    const matchedUser = users.find(u => normalizeEmployeeId(u.employeeId || '') === normalizedId);
+    const isRemoteLoginAllowed = remoteLoginIds.includes(normalizedId) || matchedUser?.workMode === 'Remote';
+    if (ipStatus === 'blocked' && !isRemoteLoginAllowed) {
+      setError('Office Wi-Fi required for this account.');
+      return;
+    }
     let foundUser = users.find(
       u =>
         normalizeEmployeeId(u.employeeId || '') === normalizedId &&
@@ -477,18 +484,22 @@ const App: React.FC = () => {
     );
   }
 
-  if (ipStatus === 'blocked') {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
-        <div className="bg-white rounded-[2.5rem] shadow-2xl p-10 border border-slate-100 text-center space-y-3 max-w-md">
-          <p className="text-xs font-black uppercase tracking-widest text-rose-400">Access Restricted</p>
-          <p className="text-lg font-black text-slate-900">Office Wi-Fi required</p>
-          <p className="text-xs font-bold text-slate-500">
-            {publicIp ? `Detected IP: ${publicIp}` : 'Unable to verify IP.'}
-          </p>
+  if (ipStatus === 'blocked' && user) {
+    const isRemoteSessionAllowed = remoteLoginIds.includes(normalizeEmployeeId(user.employeeId || ''))
+      || user.workMode === 'Remote';
+    if (!isRemoteSessionAllowed) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl p-10 border border-slate-100 text-center space-y-3 max-w-md">
+            <p className="text-xs font-black uppercase tracking-widest text-rose-400">Access Restricted</p>
+            <p className="text-lg font-black text-slate-900">Office Wi-Fi required</p>
+            <p className="text-xs font-bold text-slate-500">
+              {publicIp ? `Detected IP: ${publicIp}` : 'Unable to verify IP.'}
+            </p>
+          </div>
         </div>
-      </div>
-    );
+      );
+    }
   }
 
   if (!user) {
@@ -500,6 +511,12 @@ const App: React.FC = () => {
               <img src={logoUrl} alt="BytechSol" className="mx-auto h-14 w-auto mb-4" />
               <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em]">Corporate Access Portal</p>
             </div>
+            {ipStatus === 'blocked' && (
+              <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4 text-center">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-500">Office Wi-Fi Required</p>
+                <p className="text-[10px] font-bold text-amber-600 mt-2">Remote staff can still log in.</p>
+              </div>
+            )}
             <form className="space-y-6" onSubmit={handleLogin}>
               <div className="space-y-1">
                 <label htmlFor="login-employee-id" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label>

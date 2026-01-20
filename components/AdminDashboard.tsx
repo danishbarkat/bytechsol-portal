@@ -550,6 +550,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const documentUsers = salarySlipSelfOnly
     ? [user]
     : visibleUsers.filter(u => u.role !== Role.SUPERADMIN);
+  const [shiftStartHour, shiftStartMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
+  const [shiftEndHour, shiftEndMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+  const shiftStartMinutes = shiftStartHour * 60 + shiftStartMinute;
+  const shiftEndMinutes = shiftEndHour * 60 + shiftEndMinute;
+  const shiftEndAdjusted = shiftEndMinutes <= shiftStartMinutes ? shiftEndMinutes + 24 * 60 : shiftEndMinutes;
   const docEarningsTotal = (Number(docForm.basicPay) || 0)
     + (Number(docForm.homeAllowance) || 0)
     + (Number(docForm.travelAllowance) || 0)
@@ -574,6 +579,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const worker = users.find(u => u.id === record.userId);
     if (worker?.workMode === 'Remote') return record.status || 'On-Time';
     if (!record.checkIn) return record.status || 'On-Time';
+    if (record.checkOut) {
+      const checkOutDate = new Date(record.checkOut);
+      const { currentMinutes: checkOutMinutes } = getShiftAdjustedMinutes(
+        checkOutDate,
+        APP_CONFIG.SHIFT_START,
+        APP_CONFIG.SHIFT_END
+      );
+      if (checkOutMinutes < shiftEndAdjusted) return 'Early Checkout';
+    }
     const checkInDate = new Date(record.checkIn);
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInDate,
@@ -982,7 +996,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <td className="px-4 md:px-6 2xl:px-8 py-6">
                       <div className="flex flex-col">
                         <span className="text-xs font-black">{new Date(r.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getDisplayStatus(r) === 'Late' || getDisplayStatus(r) === 'Early Checkout' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
                       </div>
                     </td>
                     <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-blue-600">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>

@@ -388,6 +388,15 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const getDisplayStatus = (record: AttendanceRecord) => {
     if (user.workMode === 'Remote') return record.status || 'On-Time';
     if (!record.checkIn) return record.status || 'On-Time';
+    if (record.checkOut) {
+      const checkOutDate = new Date(record.checkOut);
+      const { currentMinutes: checkOutMinutes } = getShiftAdjustedMinutes(
+        checkOutDate,
+        APP_CONFIG.SHIFT_START,
+        APP_CONFIG.SHIFT_END
+      );
+      if (checkOutMinutes < shiftEndMinutes) return 'Early Checkout';
+    }
     const checkInDate = new Date(record.checkIn);
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInDate,
@@ -512,7 +521,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                       <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
                         <td className="py-6 font-black text-slate-900">{r.date}</td>
                         <td className="py-6">
-                          <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
+                          <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${getDisplayStatus(r) === 'Late' || getDisplayStatus(r) === 'Early Checkout' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
                         </td>
                         <td className="py-6 font-black text-blue-600 text-right">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
                       </tr>

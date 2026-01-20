@@ -29,7 +29,7 @@ export interface User {
 }
 
 export type CheckInStatus = 'Early' | 'On-Time' | 'Late';
-export type LeaveStatus = 'Pending' | 'Approved' | 'Rejected';
+export type LeaveStatus = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
 
 export interface AttendanceRecord {
   id: string;

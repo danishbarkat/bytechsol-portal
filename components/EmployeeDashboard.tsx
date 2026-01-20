@@ -17,6 +17,7 @@ interface EmployeeDashboardProps {
   onUpdateESS: (profile: ESSProfile) => void;
   onUpdateChecklist: (checklist: UserChecklist) => void;
   onUpdateUser: (user: User) => void;
+  onCancelLeave: (leaveId: string) => void;
 }
 
 const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
@@ -31,7 +32,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   onSubmitLeave,
   onUpdateESS,
   onUpdateChecklist,
-  onUpdateUser
+  onUpdateUser,
+  onCancelLeave
 }) => {
   const [tab, setTab] = useState<'attendance' | 'leaves' | 'profile' | 'checklists'>('attendance');
   const buildLeaveTemplate = (employee: User) =>
@@ -318,8 +320,20 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                     <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{l.startDate} - {l.endDate}</span>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{l.status}</span>
+                      <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : l.status === 'Cancelled' ? 'bg-slate-100 text-slate-500' : 'bg-rose-50 text-rose-600'}`}>{l.status}</span>
                       <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.isPaid === false ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}>{l.isPaid === false ? 'Unpaid' : 'Paid'}</span>
+                      {l.status === 'Pending' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!window.confirm('Cancel this leave request?')) return;
+                            onCancelLeave(l.id);
+                          }}
+                          className="px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all"
+                        >
+                          Cancel
+                        </button>
+                      )}
                     </div>
                   </div>
                   <p className="text-sm font-bold text-slate-800">"{l.reason}"</p>

@@ -361,6 +361,14 @@ const App: React.FC = () => {
     void saveLeaves(updated);
   };
 
+  const handleCancelLeave = (leaveId: string) => {
+    setLeaves(prev => {
+      const updated = prev.map(l => l.id === leaveId ? { ...l, status: 'Cancelled' } : l);
+      void saveLeaves(updated);
+      return updated;
+    });
+  };
+
   const handleUpdateRecord = (updatedRecord: AttendanceRecord) => {
     setRecords(prevRecords => {
       const newRecords = prevRecords.map(r => r.id === updatedRecord.id ? { ...updatedRecord } : r);
@@ -560,6 +568,7 @@ const App: React.FC = () => {
           onUpdateESS={handleUpdateESS}
           onUpdateChecklist={handleUpdateChecklist}
           onUpdateUser={handleUpdateUser}
+          onCancelLeave={handleCancelLeave}
         />
       ) : (
         <AdminDashboard

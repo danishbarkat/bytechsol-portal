@@ -22,6 +22,7 @@ export interface User {
   allowances?: number;
   salaryHidden?: boolean;
   pin?: string;
+  profileImage?: string;
   workMode?: 'Onsite' | 'Remote';
   grade?: string;
   teamLead?: string;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist } from '../types';
+import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist, Role } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
 import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
@@ -41,6 +41,12 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [leaveApplication, setLeaveApplication] = useState(buildLeaveTemplate(user));
   const [currentTime, setCurrentTime] = useState(new Date());
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [profileName, setProfileName] = useState(user.name || '');
+  const [profileEmail, setProfileEmail] = useState(user.email || '');
+  const [profilePhone, setProfilePhone] = useState(user.phone || '');
+  const [profileImage, setProfileImage] = useState<string | null>(user.profileImage || null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileSaved, setProfileSaved] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -72,11 +78,63 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     setLeaveApplication(buildLeaveTemplate(user));
   }, [user.id, user.name, user.employeeId]);
 
+  useEffect(() => {
+    setProfileName(user.name || '');
+    setProfileEmail(user.email || '');
+    setProfilePhone(user.phone || '');
+    setProfileImage(user.profileImage || null);
+  }, [user.id, user.name, user.email, user.phone, user.profileImage]);
+
   const handleESSUpdate = () => {
     onUpdateESS(editProfile);
 
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
+  };
+
+  const handleProfileSave = () => {
+    const trimmedEmail = profileEmail.trim();
+    if (!trimmedEmail) {
+      setProfileError('Email is required.');
+      return;
+    }
+    const canEditName = user.role === Role.HR;
+    const trimmedName = profileName.trim();
+    const resolvedName = canEditName && trimmedName ? trimmedName : user.name;
+    const [firstName, ...rest] = resolvedName.split(' ');
+    const lastName = rest.join(' ').trim();
+    onUpdateUser({
+      ...user,
+      name: resolvedName,
+      firstName: canEditName ? firstName : user.firstName,
+      lastName: canEditName ? lastName : user.lastName,
+      email: trimmedEmail,
+      phone: profilePhone.trim(),
+      profileImage: profileImage || undefined
+    });
+    setProfileError(null);
+    setProfileSaved(true);
+    setTimeout(() => setProfileSaved(false), 3000);
+  };
+
+  const handleProfileImageChange = (file?: File | null) => {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      setProfileError('Only PNG or JPG images are allowed.');
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      setProfileError('Image must be under 1MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setProfileImage(reader.result);
+        setProfileError(null);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handlePasswordReset = () => {
@@ -363,6 +421,91 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       {tab === 'profile' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-8 space-y-8">
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-8">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Profile Details</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-1 md:col-span-2">
+                    <label htmlFor="profile-photo" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Profile Photo (PNG/JPG)</label>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                      <div className="w-20 h-20 rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center">
+                        {profileImage ? (
+                          <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-[10px] font-black text-slate-400 uppercase">No Photo</span>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <input
+                          id="profile-photo"
+                          name="profilePhoto"
+                          type="file"
+                          accept="image/png,image/jpeg"
+                          onChange={e => handleProfileImageChange(e.target.files?.[0] || null)}
+                          className="w-full text-xs font-bold text-slate-500"
+                        />
+                        {profileImage && (
+                          <button
+                            type="button"
+                            onClick={() => setProfileImage(null)}
+                            className="text-[10px] font-black uppercase tracking-widest text-rose-600"
+                          >
+                            Remove Photo
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="profile-name" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Full Name</label>
+                    <input
+                      id="profile-name"
+                      name="name"
+                      type="text"
+                      value={profileName}
+                      onChange={e => setProfileName(e.target.value)}
+                      disabled={user.role !== Role.HR}
+                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none disabled:opacity-60"
+                    />
+                    {user.role !== Role.HR && (
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Name changes require HR.</p>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="profile-email" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Email Address</label>
+                    <input
+                      id="profile-email"
+                      name="email"
+                      type="email"
+                      value={profileEmail}
+                      onChange={e => setProfileEmail(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="profile-phone" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Phone Number</label>
+                    <input
+                      id="profile-phone"
+                      name="phone"
+                      type="text"
+                      value={profilePhone}
+                      onChange={e => setProfilePhone(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+              {profileError && (
+                <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">{profileError}</p>
+              )}
+              {profileSaved && (
+                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Profile updated</p>
+              )}
+              <button onClick={handleProfileSave} className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl">
+                Save Profile
+              </button>
+            </div>
+
             <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-10">
               <div>
                 <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Emergency Contact</h3>

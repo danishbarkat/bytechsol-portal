@@ -83,3 +83,7 @@ Enable realtime on these tables:
 
 ## RLS
 For quick testing, you can disable RLS or add policies that allow read/write for anon. Lock this down before production.
+
+## Storage (Profile Images)
+Create a public bucket named `avatars` (or match `APP_CONFIG.PROFILE_IMAGE_BUCKET`).
+For quick testing with anon access, allow public read and insert/update on `storage.objects` for that bucket.

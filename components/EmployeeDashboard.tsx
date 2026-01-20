@@ -3,6 +3,7 @@ import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist, Role }
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
 import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
+import { supabase, isSupabaseConfigured } from '../utils/supabase';
 
 interface EmployeeDashboardProps {
   user: User;
@@ -110,11 +111,43 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       lastName: canEditName ? lastName : user.lastName,
       email: trimmedEmail,
       phone: profilePhone.trim(),
-      profileImage: profileImage || undefined
+      profileImage: profileImage ?? null
     });
     setProfileError(null);
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 3000);
+  };
+
+  const uploadProfileImage = async (file: File) => {
+    if (!isSupabaseConfigured || !supabase) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setProfileImage(reader.result);
+          setProfileError(null);
+        }
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+    const ext = file.type === 'image/png' ? 'png' : 'jpg';
+    const fileName = `${user.id}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage
+      .from(APP_CONFIG.PROFILE_IMAGE_BUCKET)
+      .upload(fileName, file, { upsert: true, contentType: file.type });
+    if (error) {
+      setProfileError('Upload failed. Check storage permissions.');
+      return;
+    }
+    const { data } = supabase.storage
+      .from(APP_CONFIG.PROFILE_IMAGE_BUCKET)
+      .getPublicUrl(fileName);
+    if (!data?.publicUrl) {
+      setProfileError('Unable to read uploaded image URL.');
+      return;
+    }
+    setProfileImage(data.publicUrl);
+    setProfileError(null);
   };
 
   const handleProfileImageChange = (file?: File | null) => {
@@ -123,18 +156,11 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       setProfileError('Only PNG or JPG images are allowed.');
       return;
     }
-    if (file.size > 1024 * 1024) {
-      setProfileError('Image must be under 1MB.');
+    if (file.size > APP_CONFIG.PROFILE_IMAGE_MAX_BYTES) {
+      setProfileError('Image must be under 3MB.');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setProfileImage(reader.result);
-        setProfileError(null);
-      }
-    };
-    reader.readAsDataURL(file);
+    void uploadProfileImage(file);
   };
 
   const handlePasswordReset = () => {

@@ -46,6 +46,15 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                 <p className="text-sm font-bold text-slate-900">{user.name}</p>
                 <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">{user.role}</p>
               </div>
+              <div className="hidden sm:flex items-center justify-center w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
+                {user.profileImage ? (
+                  <img src={user.profileImage} alt={user.name} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-[11px] font-black text-slate-400 uppercase">
+                    {(user.name || 'U').split(' ').map(part => part[0]).join('').slice(0, 2)}
+                  </span>
+                )}
+              </div>
               <button
                 onClick={onLogout}
                 className="group flex items-center space-x-2 px-4 py-2 text-sm font-bold text-slate-600 hover:text-red-600 transition-all duration-300 rounded-full hover:bg-red-50"

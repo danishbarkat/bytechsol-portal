@@ -211,10 +211,11 @@ const App: React.FC = () => {
     e.preventDefault();
     const normalizedId = normalizeEmployeeId(employeeIdInput);
     const credential = password.trim();
+    const isPin = /^\d{4}$/.test(credential);
     let foundUser = users.find(
       u =>
         normalizeEmployeeId(u.employeeId || '') === normalizedId &&
-        (u.password === credential || (u.pin && u.pin === credential))
+        (u.password === credential || (isPin && u.pin === credential))
     );
     if (!foundUser) {
       const inputSuffix = extractEmployeeSuffix(normalizedId);
@@ -222,7 +223,7 @@ const App: React.FC = () => {
         const suffixMatches = users.filter(
           u =>
             extractEmployeeSuffix(u.employeeId || '') === inputSuffix &&
-            (u.password === credential || (u.pin && u.pin === credential))
+            (u.password === credential || (isPin && u.pin === credential))
         );
         if (suffixMatches.length === 1) {
           foundUser = suffixMatches[0];

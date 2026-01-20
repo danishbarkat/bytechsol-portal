@@ -736,45 +736,65 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                   <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Salary Slip</h3>
                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{monthLabel}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={downloadSalarySlip}
-                  className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition-all"
-                >
-                  Download
-                </button>
-              </div>
-              <div className="mt-6 space-y-3 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-500">Base Salary</span>
-                  <span className="font-black text-slate-900">{formatCurrency(monthlySalary)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-500">Unpaid Leaves ({unpaidLeaveDays} days)</span>
-                  <span className="font-black text-rose-500">- {formatCurrency(leaveDeduction)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-500">Overtime ({overtimeHoursThisMonth.toFixed(2)} hrs)</span>
-                  <span className="font-black text-emerald-600">+ {formatCurrency(overtimePay)}</span>
-                </div>
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                  <span className="font-bold text-slate-600">Taxable Salary</span>
-                  <span className="font-black text-slate-900">{formatCurrency(baseAfterLeave)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-500">Tax (PK progressive)</span>
-                  <span className="font-black text-amber-600">- {formatCurrency(monthlyTax)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-600">Salary After Tax</span>
-                  <span className="font-black text-slate-900">{formatCurrency(salaryAfterTax)}</span>
-                </div>
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                  <span className="font-black text-slate-900">Salary with Overtime</span>
-                  <span className="font-black text-blue-600">{formatCurrency(netPay)}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onUpdateUser({ ...user, salaryHidden: !salaryHidden })}
+                    className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
+                  >
+                    {salaryHidden ? 'Show' : 'Hide'}
+                  </button>
+                  {!salaryHidden && (
+                    <button
+                      type="button"
+                      onClick={downloadSalarySlip}
+                      className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition-all"
+                    >
+                      Download
+                    </button>
+                  )}
                 </div>
               </div>
-              <p className="mt-5 text-[8px] font-bold text-slate-300 uppercase text-center">Overtime is not taxed</p>
+              {salaryHidden ? (
+                <div className="mt-6 rounded-2xl border border-slate-100 bg-slate-50 p-6 text-center">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Salary slip hidden</p>
+                  <p className="text-[10px] font-bold text-slate-500 mt-2">Use “Show” to view details.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="mt-6 space-y-3 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-500">Base Salary</span>
+                      <span className="font-black text-slate-900">{formatCurrency(monthlySalary)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-500">Unpaid Leaves ({unpaidLeaveDays} days)</span>
+                      <span className="font-black text-rose-500">- {formatCurrency(leaveDeduction)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-500">Overtime ({overtimeHoursThisMonth.toFixed(2)} hrs)</span>
+                      <span className="font-black text-emerald-600">+ {formatCurrency(overtimePay)}</span>
+                    </div>
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <span className="font-bold text-slate-600">Taxable Salary</span>
+                      <span className="font-black text-slate-900">{formatCurrency(baseAfterLeave)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-500">Tax (PK progressive)</span>
+                      <span className="font-black text-amber-600">- {formatCurrency(monthlyTax)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-600">Salary After Tax</span>
+                      <span className="font-black text-slate-900">{formatCurrency(salaryAfterTax)}</span>
+                    </div>
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                      <span className="font-black text-slate-900">Salary with Overtime</span>
+                      <span className="font-black text-blue-600">{formatCurrency(netPay)}</span>
+                    </div>
+                  </div>
+                  <p className="mt-5 text-[8px] font-bold text-slate-300 uppercase text-center">Overtime is not taxed</p>
+                </>
+              )}
             </div>
 
             <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">

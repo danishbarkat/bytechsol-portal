@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist, Role } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
-import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes } from '../utils/dates';
+import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
 import { supabase, isSupabaseConfigured } from '../utils/supabase';
 
@@ -39,7 +39,7 @@ const getShiftMetrics = (shiftStart: string, shiftEnd: string) => {
   const endMinutesAdjusted = isOvernight ? endMinutes + 24 * 60 : endMinutes;
   const durationMinutes = Math.max(0, endMinutesAdjusted - startMinutes);
   const durationHours = durationMinutes > 0 ? durationMinutes / 60 : 8;
-  return { startMinutes, endMinutesAdjusted, durationHours };
+  return { startMinutes, endMinutesRaw: endMinutes, endMinutesAdjusted, durationHours, isOvernight };
 };
 
 const calculateMonthlyTax = (grossPay: number) => {
@@ -287,17 +287,21 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     l => l.userId === user.id && (l.isPaid ?? true) && l.status !== 'Cancelled' && isSameMonth(l.startDate, currentTime)
   ).length;
   const paidLeaveRemaining = Math.max(0, 1 - paidLeavesThisMonth);
-  const { startMinutes: shiftStartMinutes, endMinutesAdjusted: shiftEndMinutes, durationHours: shiftHours } = getShiftMetrics(
+  const {
+    startMinutes: shiftStartMinutes,
+    endMinutesAdjusted: shiftEndMinutes,
+    durationHours: shiftHours,
+    isOvernight: isOvernightShift
+  } = getShiftMetrics(
     APP_CONFIG.SHIFT_START,
     APP_CONFIG.SHIFT_END
   );
   const earlyCheckoutCutoff = shiftEndMinutes - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
 
   const getOvertimeMinutesForRecord = (record: AttendanceRecord) => {
-    if (Number.isFinite(record.overtimeHours)) {
-      return (record.overtimeHours || 0) * 60;
+    if (!record.checkIn || !record.checkOut) {
+      return Number.isFinite(record.overtimeHours) ? (record.overtimeHours || 0) * 60 : 0;
     }
-    if (!record.checkIn || !record.checkOut) return 0;
     const checkInDate = new Date(record.checkIn);
     const checkOutDate = new Date(record.checkOut);
     const checkInMinutes = getShiftAdjustedMinutes(
@@ -305,11 +309,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       APP_CONFIG.SHIFT_START,
       APP_CONFIG.SHIFT_END
     ).currentMinutes;
-    const checkOutMinutes = getShiftAdjustedMinutes(
-      checkOutDate,
-      APP_CONFIG.SHIFT_START,
-      APP_CONFIG.SHIFT_END
-    ).currentMinutes;
+    const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
+    const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
+      ? checkOutRawMinutes + 24 * 60
+      : checkOutRawMinutes;
     const earlyMinutes = Math.max(0, shiftStartMinutes - checkInMinutes);
     const lateMinutes = Math.max(0, checkOutMinutes - shiftEndMinutes);
     return earlyMinutes + lateMinutes;
@@ -402,11 +405,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const getCheckoutStatus = (record: AttendanceRecord) => {
     if (!record.checkOut) return 'Active';
     const checkOutDate = new Date(record.checkOut);
-    const { currentMinutes: checkOutMinutes } = getShiftAdjustedMinutes(
-      checkOutDate,
-      APP_CONFIG.SHIFT_START,
-      APP_CONFIG.SHIFT_END
-    );
+    const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
+    const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
+      ? checkOutRawMinutes + 24 * 60
+      : checkOutRawMinutes;
     if (checkOutMinutes < earlyCheckoutCutoff) return 'Early';
     if (checkOutMinutes > shiftEndMinutes) return 'Overtime';
     return 'On-Time';

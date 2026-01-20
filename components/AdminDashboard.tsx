@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AttendanceRecord, LeaveRequest, Role, User, ESSProfile, UserChecklist } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
-import { addDaysToDateString, getLocalDateString, getShiftDateString, getShiftAdjustedMinutes } from '../utils/dates';
+import { addDaysToDateString, getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
 import logoUrl from '../asset/public/logo.svg';
 
@@ -554,7 +554,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [shiftEndHour, shiftEndMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
   const shiftStartMinutes = shiftStartHour * 60 + shiftStartMinute;
   const shiftEndMinutes = shiftEndHour * 60 + shiftEndMinute;
-  const shiftEndAdjusted = shiftEndMinutes <= shiftStartMinutes ? shiftEndMinutes + 24 * 60 : shiftEndMinutes;
+  const isOvernightShift = shiftEndMinutes <= shiftStartMinutes;
+  const shiftEndAdjusted = isOvernightShift ? shiftEndMinutes + 24 * 60 : shiftEndMinutes;
   const earlyCheckoutCutoff = shiftEndAdjusted - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
   const docEarningsTotal = (Number(docForm.basicPay) || 0)
     + (Number(docForm.homeAllowance) || 0)
@@ -593,11 +594,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const getCheckoutStatus = (record: AttendanceRecord) => {
     if (!record.checkOut) return 'Active';
     const checkOutDate = new Date(record.checkOut);
-    const { currentMinutes: checkOutMinutes } = getShiftAdjustedMinutes(
-      checkOutDate,
-      APP_CONFIG.SHIFT_START,
-      APP_CONFIG.SHIFT_END
-    );
+    const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
+    const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
+      ? checkOutRawMinutes + 24 * 60
+      : checkOutRawMinutes;
     if (checkOutMinutes < earlyCheckoutCutoff) return 'Early';
     if (checkOutMinutes > shiftEndAdjusted) return 'Overtime';
     return 'On-Time';

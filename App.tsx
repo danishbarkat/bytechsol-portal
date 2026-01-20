@@ -328,7 +328,7 @@ const App: React.FC = () => {
       APP_CONFIG.SHIFT_END
     ).currentMinutes;
     const checkOutMinutes = getLocalTimeMinutes(now);
-    const adjustedCheckOut = isOvernight && checkOutMinutes < endMinutes
+    const adjustedCheckOut = isOvernight && checkOutMinutes < startMinutes
       ? checkOutMinutes + 24 * 60
       : checkOutMinutes;
     const earlyMinutes = Math.max(0, startMinutes - checkInAdjusted);

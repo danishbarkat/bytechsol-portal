@@ -532,7 +532,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const roleOptions = isSuperadmin
     ? Object.values(Role)
     : Object.values(Role).filter(r => r !== Role.SUPERADMIN && (!isHr || r !== Role.CEO));
-  const documentUsers = visibleUsers.filter(u => u.role !== Role.SUPERADMIN);
+  const salarySlipSelfOnly = isHr && docType === 'salary-slip';
+  const documentUsers = salarySlipSelfOnly
+    ? [user]
+    : visibleUsers.filter(u => u.role !== Role.SUPERADMIN);
 
   useEffect(() => {
     setLeaveApplication(buildLeaveTemplate(user));
@@ -540,6 +543,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setLeaveStartDate(today);
     setLeaveEndDate(today);
   }, [user.id, user.name, user.employeeId]);
+
+  useEffect(() => {
+    if (!salarySlipSelfOnly) return;
+    if (selectedDocUserId !== user.id) {
+      handleDocumentUserSelect(user.id);
+    }
+  }, [salarySlipSelfOnly, selectedDocUserId, user.id, users]);
 
   const getDisplayStatus = (record: AttendanceRecord) => {
     const worker = users.find(u => u.id === record.userId);
@@ -1176,9 +1186,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     name="documentEmployee"
                     value={selectedDocUserId}
                     onChange={e => handleDocumentUserSelect(e.target.value)}
-                    className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"
+                    disabled={salarySlipSelfOnly}
+                    className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 disabled:opacity-60"
                   >
-                    <option value="manual">Manual Entry</option>
+                    {!salarySlipSelfOnly && <option value="manual">Manual Entry</option>}
                     {documentUsers.map(emp => (
                       <option key={emp.id} value={emp.id}>{emp.name} ({emp.employeeId})</option>
                     ))}

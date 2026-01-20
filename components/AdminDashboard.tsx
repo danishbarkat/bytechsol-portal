@@ -555,6 +555,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const shiftStartMinutes = shiftStartHour * 60 + shiftStartMinute;
   const shiftEndMinutes = shiftEndHour * 60 + shiftEndMinute;
   const shiftEndAdjusted = shiftEndMinutes <= shiftStartMinutes ? shiftEndMinutes + 24 * 60 : shiftEndMinutes;
+  const earlyCheckoutCutoff = shiftEndAdjusted - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
   const docEarningsTotal = (Number(docForm.basicPay) || 0)
     + (Number(docForm.homeAllowance) || 0)
     + (Number(docForm.travelAllowance) || 0)
@@ -579,15 +580,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const worker = users.find(u => u.id === record.userId);
     if (worker?.workMode === 'Remote') return record.status || 'On-Time';
     if (!record.checkIn) return record.status || 'On-Time';
-    if (record.checkOut) {
-      const checkOutDate = new Date(record.checkOut);
-      const { currentMinutes: checkOutMinutes } = getShiftAdjustedMinutes(
-        checkOutDate,
-        APP_CONFIG.SHIFT_START,
-        APP_CONFIG.SHIFT_END
-      );
-      if (checkOutMinutes < shiftEndAdjusted) return 'Early Checkout';
-    }
     const checkInDate = new Date(record.checkIn);
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInDate,
@@ -596,6 +588,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     );
     if (currentMinutes < startMinutes) return 'Early';
     return record.status || 'On-Time';
+  };
+
+  const getCheckoutStatus = (record: AttendanceRecord) => {
+    if (!record.checkOut) return 'Active';
+    const checkOutDate = new Date(record.checkOut);
+    const { currentMinutes: checkOutMinutes } = getShiftAdjustedMinutes(
+      checkOutDate,
+      APP_CONFIG.SHIFT_START,
+      APP_CONFIG.SHIFT_END
+    );
+    if (checkOutMinutes < earlyCheckoutCutoff) return 'Early';
+    if (checkOutMinutes > shiftEndAdjusted) return 'Overtime';
+    return 'On-Time';
   };
 
   const handleDocumentUserSelect = (userId: string) => {
@@ -983,20 +988,35 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <tr className="bg-slate-50/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
                   <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Employee</th>
                   <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Date</th>
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Arrival</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Check In</th>
+                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Check Out</th>
                   <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Duration</th>
                   <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredAttendance.map(r => (
+                {filteredAttendance.map(r => {
+                  const recordUser = users.find(u => u.id === r.userId);
+                  const roleLabel = recordUser?.position || recordUser?.role || 'Employee';
+                  return (
                   <tr key={r.id} className="hover:bg-blue-50/20 transition-all">
-                    <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-slate-900">{r.userName}</td>
+                    <td className="px-4 md:px-6 2xl:px-8 py-6">
+                      <div className="flex flex-col">
+                        <span className="font-black text-slate-900">{r.userName}</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mt-1">{roleLabel}</span>
+                      </div>
+                    </td>
                     <td className="px-4 md:px-6 2xl:px-8 py-6 text-xs font-bold text-slate-500">{r.date}</td>
                     <td className="px-4 md:px-6 2xl:px-8 py-6">
                       <div className="flex flex-col">
                         <span className="text-xs font-black">{new Date(r.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getDisplayStatus(r) === 'Late' || getDisplayStatus(r) === 'Early Checkout' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 md:px-6 2xl:px-8 py-6">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-black">{r.checkOut ? new Date(r.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'Overtime' ? 'border-emerald-100 text-emerald-600 bg-emerald-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-400 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
                       </div>
                     </td>
                     <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-blue-600">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
@@ -1004,7 +1024,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {isSuperadmin && <button onClick={() => startEditingRecord(r)} className="text-[10px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-800 underline">Manual Edit</button>}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               </table>
             </div>

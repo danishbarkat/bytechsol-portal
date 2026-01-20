@@ -291,6 +291,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     APP_CONFIG.SHIFT_START,
     APP_CONFIG.SHIFT_END
   );
+  const earlyCheckoutCutoff = shiftEndMinutes - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
 
   const getOvertimeMinutesForRecord = (record: AttendanceRecord) => {
     if (Number.isFinite(record.overtimeHours)) {
@@ -388,15 +389,6 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const getDisplayStatus = (record: AttendanceRecord) => {
     if (user.workMode === 'Remote') return record.status || 'On-Time';
     if (!record.checkIn) return record.status || 'On-Time';
-    if (record.checkOut) {
-      const checkOutDate = new Date(record.checkOut);
-      const { currentMinutes: checkOutMinutes } = getShiftAdjustedMinutes(
-        checkOutDate,
-        APP_CONFIG.SHIFT_START,
-        APP_CONFIG.SHIFT_END
-      );
-      if (checkOutMinutes < shiftEndMinutes) return 'Early Checkout';
-    }
     const checkInDate = new Date(record.checkIn);
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInDate,
@@ -405,6 +397,19 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     );
     if (currentMinutes < startMinutes) return 'Early';
     return record.status || 'On-Time';
+  };
+
+  const getCheckoutStatus = (record: AttendanceRecord) => {
+    if (!record.checkOut) return 'Active';
+    const checkOutDate = new Date(record.checkOut);
+    const { currentMinutes: checkOutMinutes } = getShiftAdjustedMinutes(
+      checkOutDate,
+      APP_CONFIG.SHIFT_START,
+      APP_CONFIG.SHIFT_END
+    );
+    if (checkOutMinutes < earlyCheckoutCutoff) return 'Early';
+    if (checkOutMinutes > shiftEndMinutes) return 'Overtime';
+    return 'On-Time';
   };
 
   const toggleChecklistItem = (itemId: string) => {
@@ -508,11 +513,12 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
             <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 h-full overflow-hidden">
               <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-8">Activity Log</h3>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[520px] text-left">
+                <table className="w-full min-w-[640px] text-left">
                   <thead>
                     <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50">
                       <th className="pb-4">Date</th>
-                      <th className="pb-4">Status</th>
+                      <th className="pb-4">Check In</th>
+                      <th className="pb-4">Check Out</th>
                       <th className="pb-4 text-right">Hours</th>
                     </tr>
                   </thead>
@@ -521,7 +527,16 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                       <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
                         <td className="py-6 font-black text-slate-900">{r.date}</td>
                         <td className="py-6">
-                          <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${getDisplayStatus(r) === 'Late' || getDisplayStatus(r) === 'Early Checkout' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
+                          <div className="flex flex-col">
+                            <span className="text-xs font-black">{new Date(r.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
+                          </div>
+                        </td>
+                        <td className="py-6">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-black">{r.checkOut ? new Date(r.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}</span>
+                            <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>{getCheckoutStatus(r)}</span>
+                          </div>
                         </td>
                         <td className="py-6 font-black text-blue-600 text-right">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
                       </tr>

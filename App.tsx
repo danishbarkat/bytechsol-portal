@@ -20,7 +20,8 @@ import {
   fetchChecklistsRemote,
   fetchUsersRemote,
   subscribeToTableChanges,
-  deleteUserData
+  deleteUserData,
+  updateCredentialsByEmployeeId
 } from './utils/storage';
 import { isSupabaseConfigured } from './utils/supabase';
 import { getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes } from './utils/dates';
@@ -411,12 +412,18 @@ const App: React.FC = () => {
 
   const handleUpdateUser = (updatedUser: User) => {
     setUsers(prev => {
-      const updated = prev.map(u => u.id === updatedUser.id ? updatedUser : u);
+      const normalized = normalizeEmployeeId(updatedUser.employeeId || '');
+      const updated = prev.map(u =>
+        normalizeEmployeeId(u.employeeId || '') === normalized ? { ...u, ...updatedUser } : u
+      );
       void saveUsers(updated);
       return updated;
     });
     if (user?.id === updatedUser.id) {
       setUser(updatedUser);
+    }
+    if (updatedUser.employeeId) {
+      void updateCredentialsByEmployeeId(updatedUser.employeeId, updatedUser.password, updatedUser.pin ?? null);
     }
   };
 

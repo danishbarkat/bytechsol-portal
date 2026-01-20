@@ -296,6 +296,29 @@ export const saveUsers = async (users: User[]) => {
   }
 };
 
+export const updateCredentialsByEmployeeId = async (
+  employeeId: string,
+  password?: string,
+  pin?: string | null
+) => {
+  if (!isSupabaseConfigured || !supabase) return;
+  const updates: Record<string, string | null> = {};
+  if (typeof password === 'string') {
+    updates.password = password;
+  }
+  if (pin !== undefined) {
+    updates.pin_code = pin;
+  }
+  if (Object.keys(updates).length === 0) return;
+  const { error } = await supabase
+    .from('users')
+    .update(updates)
+    .eq('employee_id', employeeId);
+  if (error) {
+    logSupabaseError('updateCredentialsByEmployeeId', error);
+  }
+};
+
 export const fetchRecordsRemote = async (): Promise<AttendanceRecord[]> => {
   if (!isSupabaseConfigured || !supabase) {
     return loadLocal<AttendanceRecord[]>(ATTENDANCE_KEY, []);

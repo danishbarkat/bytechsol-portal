@@ -343,6 +343,7 @@ const App: React.FC = () => {
     const paidLeavesThisMonth = leaves.filter(l =>
       l.userId === user.id &&
       (l.isPaid ?? true) &&
+      l.status !== 'Cancelled' &&
       isSameMonth(l.startDate, leaveMonth)
     ).length;
     const isPaid = paidLeavesThisMonth < 1;

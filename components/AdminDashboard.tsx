@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AttendanceRecord, LeaveRequest, Role, User, ESSProfile, UserChecklist } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
-import { addDaysToDateString, getLocalDateString, getShiftDateString } from '../utils/dates';
+import { addDaysToDateString, getLocalDateString, getShiftDateString, getShiftAdjustedMinutes } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
 import logoUrl from '../asset/public/logo.svg';
 
@@ -541,6 +541,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setLeaveEndDate(today);
   }, [user.id, user.name, user.employeeId]);
 
+  const getDisplayStatus = (record: AttendanceRecord) => {
+    const worker = users.find(u => u.id === record.userId);
+    if (worker?.workMode === 'Remote') return record.status || 'On-Time';
+    if (!record.checkIn) return record.status || 'On-Time';
+    const checkInDate = new Date(record.checkIn);
+    const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
+      checkInDate,
+      APP_CONFIG.SHIFT_START,
+      APP_CONFIG.SHIFT_END
+    );
+    if (currentMinutes < startMinutes) return 'Early';
+    return record.status || 'On-Time';
+  };
+
   const handleDocumentUserSelect = (userId: string) => {
     setSelectedDocUserId(userId);
     if (!userId || userId === 'manual') return;
@@ -933,7 +947,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <td className="px-4 md:px-6 2xl:px-8 py-6">
                       <div className="flex flex-col">
                         <span className="text-xs font-black">{new Date(r.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${r.status === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{r.status}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
                       </div>
                     </td>
                     <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-blue-600">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>

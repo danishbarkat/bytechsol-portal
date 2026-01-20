@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
-import { getLocalDateString, getShiftDateString } from '../utils/dates';
+import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
 
 interface EmployeeDashboardProps {
@@ -153,8 +153,23 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const lateRemaining = Math.max(0, lateAllowance - lateCountThisMonth);
   const monthlySalary = (Number(user.basicSalary) || 0) + (Number(user.allowances) || 0) || (Number(user.salary) || 0);
   const dailySalary = monthlySalary ? Math.round(monthlySalary / 30) : null;
-  const paidLeavesThisMonth = leaves.filter(l => l.userId === user.id && (l.isPaid ?? true) && isSameMonth(l.startDate, currentTime)).length;
+  const paidLeavesThisMonth = leaves.filter(
+    l => l.userId === user.id && (l.isPaid ?? true) && l.status !== 'Cancelled' && isSameMonth(l.startDate, currentTime)
+  ).length;
   const paidLeaveRemaining = Math.max(0, 1 - paidLeavesThisMonth);
+
+  const getDisplayStatus = (record: AttendanceRecord) => {
+    if (user.workMode === 'Remote') return record.status || 'On-Time';
+    if (!record.checkIn) return record.status || 'On-Time';
+    const checkInDate = new Date(record.checkIn);
+    const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
+      checkInDate,
+      APP_CONFIG.SHIFT_START,
+      APP_CONFIG.SHIFT_END
+    );
+    if (currentMinutes < startMinutes) return 'Early';
+    return record.status || 'On-Time';
+  };
 
   const toggleChecklistItem = (itemId: string) => {
     const updatedItems = myChecklist.items.map(item =>
@@ -270,7 +285,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                       <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
                         <td className="py-6 font-black text-slate-900">{r.date}</td>
                         <td className="py-6">
-                          <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${r.status === 'Late' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>{r.status}</span>
+                          <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
                         </td>
                         <td className="py-6 font-black text-blue-600 text-right">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
                       </tr>

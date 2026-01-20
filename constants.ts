@@ -3,8 +3,8 @@ import { Role, User } from './types';
 
 export const APP_CONFIG = {
   OFFICE_WIFI_NAME: "Office_Main_5G",
-  SHIFT_START: "20:00",
-  SHIFT_END: "05:00",
+  SHIFT_START: "08:00",
+  SHIFT_END: "17:00",
   GRACE_PERIOD_MINS: 30,
   OFFICE_ALLOWED_PUBLIC_IPS: ["202.47.33.64"],
   FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS: ["DABA010"],

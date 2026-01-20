@@ -23,7 +23,7 @@ import {
   deleteUserData
 } from './utils/storage';
 import { isSupabaseConfigured } from './utils/supabase';
-import { getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel } from './utils/dates';
+import { getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes } from './utils/dates';
 import Layout from './components/Layout';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeeDashboard from './components/EmployeeDashboard';
@@ -274,7 +274,7 @@ const App: React.FC = () => {
       return 'On-Time';
     }
     const relaxation = APP_CONFIG.GRACE_PERIOD_MINS;
-    if (currentMinutes < startMinutes - relaxation) return 'Early';
+    if (currentMinutes < startMinutes) return 'Early';
     if (currentMinutes <= startMinutes + relaxation) return 'On-Time';
     return 'Late';
   };
@@ -307,9 +307,22 @@ const App: React.FC = () => {
     const now = new Date();
     const checkInTime = new Date(activeRecord.checkIn);
     const diff = (now.getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
+    const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
+    const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+    const startMinutes = startHour * 60 + startMinute;
+    const endMinutes = endHour * 60 + endMinute;
+    const isOvernight = endMinutes <= startMinutes;
+    const checkOutMinutes = getLocalTimeMinutes(now);
+    const adjustedCheckOut = isOvernight && checkOutMinutes < endMinutes
+      ? checkOutMinutes + 24 * 60
+      : checkOutMinutes;
+    const adjustedEnd = isOvernight ? endMinutes + 24 * 60 : endMinutes;
+    const overtimeHours = adjustedCheckOut > adjustedEnd
+      ? (adjustedCheckOut - adjustedEnd) / 60
+      : undefined;
     const updated = records.map(r =>
       r.id === activeRecord.id
-        ? { ...r, checkOut: now.toISOString(), totalHours: diff }
+        ? { ...r, checkOut: now.toISOString(), totalHours: diff, overtimeHours }
         : r
     );
     setRecords(updated);

@@ -79,3 +79,8 @@ export const getWeekdayLabel = (dateStr: string, timeZone = 'Asia/Karachi'): str
   const utcDate = new Date(Date.UTC(year, month - 1, day));
   return new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(utcDate);
 };
+
+export const getLocalTimeMinutes = (date: Date, timeZone = 'Asia/Karachi'): number => {
+  const { hour, minute } = getLocalDateParts(date, timeZone);
+  return hour * 60 + minute;
+};

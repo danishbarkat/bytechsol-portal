@@ -403,8 +403,13 @@ export const calculateWeeklyOvertime = (userId: string, records: AttendanceRecor
   const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
   startOfWeek.setHours(0, 0, 0, 0);
 
-  const weeklyHours = records
-    .filter(r => r.userId === userId && new Date(r.date) >= startOfWeek)
+  const weeklyRecords = records
+    .filter(r => r.userId === userId && new Date(r.date) >= startOfWeek);
+  const overtimeFromRecords = weeklyRecords.reduce((sum, r) => sum + (r.overtimeHours || 0), 0);
+  if (overtimeFromRecords > 0) {
+    return overtimeFromRecords;
+  }
+  const weeklyHours = weeklyRecords
     .reduce((sum, r) => sum + (r.totalHours || 0), 0);
 
   return Math.max(0, weeklyHours - 40);

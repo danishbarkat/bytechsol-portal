@@ -259,9 +259,9 @@ const App: React.FC = () => {
     );
     const shiftDate = getShiftDateString(checkInTime, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
     const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
-    const userName = (user?.name || '').toLowerCase();
-    const exemptNames = APP_CONFIG.FRIDAY_LATE_EXEMPT_NAMES.map(name => name.toLowerCase());
-    const isExemptUser = exemptNames.some(name => userName.includes(name));
+    const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));
+    const userId = user?.employeeId ? normalizeEmployeeId(user.employeeId) : '';
+    const isExemptUser = Boolean(userId) && exemptIds.includes(userId);
     const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
     const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
     const startTotal = startHour * 60 + startMinute;

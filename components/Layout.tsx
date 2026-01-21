@@ -75,15 +75,15 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                   )}
                 </button>
                 {showNotifications && (
-                  <div className="fixed left-4 right-4 sm:left-auto sm:right-4 top-16 sm:top-20 w-auto sm:w-96 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden z-50">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Notifications</p>
+                  <div className="fixed left-4 right-4 sm:left-auto sm:right-4 top-16 sm:top-20 w-auto sm:w-96 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 shadow-2xl rounded-3xl overflow-hidden z-50">
+                    <div className="flex items-center justify-between px-5 py-4 sm:px-4 sm:py-3 border-b border-slate-100">
+                      <p className="text-xs sm:text-[10px] font-black uppercase tracking-widest text-slate-500">Notifications</p>
                       <div className="flex items-center gap-3">
                         {unreadCount > 0 && (
                           <button
                             type="button"
                             onClick={onMarkAllNotificationsRead}
-                            className="text-[9px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-700"
+                            className="text-[11px] sm:text-[9px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-700"
                           >
                             Mark all read
                           </button>
@@ -94,25 +94,25 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                           className="text-slate-400 hover:text-slate-600"
                           aria-label="Close notifications"
                         >
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                          <svg className="w-5 h-5 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                           </svg>
                         </button>
                       </div>
                     </div>
                     {sortedNotifications.length === 0 ? (
-                      <div className="p-6 text-center text-[10px] font-black uppercase tracking-widest text-slate-300">
+                      <div className="p-8 sm:p-6 text-center text-xs sm:text-[10px] font-black uppercase tracking-widest text-slate-300">
                         No notifications
                       </div>
                     ) : (
-                      <div className="max-h-[60vh] overflow-y-auto">
+                      <div className="max-h-[70vh] sm:max-h-[60vh] overflow-y-auto">
                         {sortedNotifications.map(notification => (
-                          <div key={notification.id} className={`px-4 py-4 border-b border-slate-100 ${notification.read ? 'bg-white' : 'bg-blue-50/40'}`}>
+                          <div key={notification.id} className={`px-5 py-5 sm:px-4 sm:py-4 border-b border-slate-100 ${notification.read ? 'bg-white' : 'bg-blue-50/40'}`}>
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <p className="text-xs font-black text-slate-900">{notification.title}</p>
-                              <p className="text-[10px] font-bold text-slate-500 mt-1 break-words">{notification.message}</p>
-                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-300 mt-2">
+                                <p className="text-sm sm:text-xs font-black text-slate-900">{notification.title}</p>
+                                <p className="text-[12px] sm:text-[10px] font-bold text-slate-500 mt-2 break-words">{notification.message}</p>
+                                <p className="text-[10px] sm:text-[9px] font-black uppercase tracking-widest text-slate-300 mt-3">
                                   {new Date(notification.createdAt).toLocaleString()}
                                 </p>
                               </div>
@@ -120,7 +120,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                                 <button
                                   type="button"
                                   onClick={() => onMarkNotificationRead(notification.id)}
-                                  className="text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-700"
+                                  className="text-[11px] sm:text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-700"
                                 >
                                   Mark read
                                 </button>

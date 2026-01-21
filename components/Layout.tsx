@@ -44,7 +44,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
               </div>
               <div className="text-right hidden sm:block border-r border-slate-200 pr-6">
                 <p className="text-sm font-bold text-slate-900">{user.name}</p>
-                <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">{user.role}</p>
+                <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">{user.position || user.role}</p>
               </div>
               <div className="hidden sm:flex items-center justify-center w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
                 {user.profileImage ? (

@@ -130,16 +130,20 @@ const mapLeaveToDb = (leave: LeaveRequest) => ({
   is_paid: leave.isPaid ?? null
 });
 
-const mapWfhFromDb = (row: Record<string, any>): WorkFromHomeRequest => ({
-  id: String(pickValue(row, ['id'], '')),
-  userId: String(pickValue(row, ['user_id', 'userId'], '')),
-  userName: String(pickValue(row, ['user_name', 'userName'], '')),
-  startDate: String(pickValue(row, ['start_date', 'startDate'], '')),
-  endDate: String(pickValue(row, ['end_date', 'endDate'], '')),
-  reason: String(pickValue(row, ['reason'], '')),
-  status: pickValue(row, ['status'], 'Pending'),
-  submittedAt: String(pickValue(row, ['submitted_at', 'submittedAt'], ''))
-});
+const mapWfhFromDb = (row: Record<string, any>): WorkFromHomeRequest => {
+  const submittedAt = String(pickValue(row, ['submitted_at', 'submittedAt'], ''));
+  const fallbackDate = submittedAt ? submittedAt.slice(0, 10) : '';
+  return {
+    id: String(pickValue(row, ['id'], '')),
+    userId: String(pickValue(row, ['user_id', 'userId'], '')),
+    userName: String(pickValue(row, ['user_name', 'userName'], '')),
+    startDate: String(pickValue(row, ['start_date', 'startDate'], fallbackDate)),
+    endDate: String(pickValue(row, ['end_date', 'endDate'], fallbackDate)),
+    reason: String(pickValue(row, ['reason'], '')),
+    status: pickValue(row, ['status'], 'Pending'),
+    submittedAt
+  };
+};
 
 const mapWfhToDb = (request: WorkFromHomeRequest) => ({
   id: request.id,

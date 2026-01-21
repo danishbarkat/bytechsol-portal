@@ -483,6 +483,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [leaveEndDate, setLeaveEndDate] = useState(() => getLocalDateString(new Date()));
   const [attendanceDateFilter, setAttendanceDateFilter] = useState('');
   const attendanceDateRef = useRef<HTMLInputElement | null>(null);
+  const [attendanceMonthFilter, setAttendanceMonthFilter] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const attendanceMonthRef = useRef<HTMLInputElement | null>(null);
   const [docForm, setDocForm] = useState<Record<string, string>>(() => {
     const now = new Date();
     const today = getLocalDateString(now);
@@ -542,7 +547,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     : isCeo
       ? users.filter(u => u.role !== Role.SUPERADMIN)
       : users;
-  const workforceUsers = visibleUsers.filter(u => u.role !== Role.SUPERADMIN);
+  const sortedVisibleUsers = [...visibleUsers].sort((a, b) => a.name.localeCompare(b.name));
+  const workforceUsers = sortedVisibleUsers.filter(u => u.role !== Role.SUPERADMIN);
   const visibleUserIds = new Set(visibleUsers.map(u => u.id));
   const visibleRecords = isSuperadmin ? records : records.filter(r => visibleUserIds.has(r.userId));
   const visibleLeaves = isSuperadmin ? leaves : leaves.filter(l => visibleUserIds.has(l.userId));
@@ -555,6 +561,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (a.date !== b.date) return b.date.localeCompare(a.date);
     return b.checkIn.localeCompare(a.checkIn);
   });
+  const defaultMonthFilter = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  const effectiveMonthFilter = attendanceMonthFilter || defaultMonthFilter;
+  const monthlyAttendanceBase = selectedEmp === 'all'
+    ? []
+    : visibleRecords.filter(r => r.userId === selectedEmp);
+  const monthlyAttendance = monthlyAttendanceBase.filter(r => r.date.startsWith(effectiveMonthFilter));
+  const sortedMonthlyAttendance = [...monthlyAttendance].sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return b.checkIn.localeCompare(a.checkIn);
+  });
+  const monthSummaryLabel = new Date(`${effectiveMonthFilter}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthTotalHours = monthlyAttendance.reduce((sum, r) => sum + (r.totalHours || 0), 0);
+  const monthOvertimeHours = monthlyAttendance.reduce((sum, r) => sum + (r.overtimeHours || 0), 0);
+  const selectedEmployee = sortedVisibleUsers.find(emp => emp.id === selectedEmp) || null;
   const canApprove = user.role === Role.CEO || user.role === Role.SUPERADMIN;
   const isExecutive = user.role === Role.CEO || user.role === Role.SUPERADMIN;
   const roleOptions = isSuperadmin
@@ -563,7 +583,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const salarySlipSelfOnly = isHr && docType === 'salary-slip';
   const documentUsers = salarySlipSelfOnly
     ? [user]
-    : visibleUsers.filter(u => u.role !== Role.SUPERADMIN);
+    : sortedVisibleUsers.filter(u => u.role !== Role.SUPERADMIN);
   const [shiftStartHour, shiftStartMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
   const [shiftEndHour, shiftEndMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
   const shiftStartMinutes = shiftStartHour * 60 + shiftStartMinute;
@@ -986,7 +1006,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
             <select id="attendance-employee-filter" name="attendanceEmployee" aria-label="Select employee" value={selectedEmp} onChange={e => setSelectedEmp(e.target.value)} className="bg-white border-2 border-slate-100 rounded-2xl px-6 py-3 text-xs font-black uppercase outline-none focus:border-blue-500 shadow-sm w-full sm:w-auto">
               <option value="all">Global Roster</option>
-              {visibleUsers.map(emp => <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>)}
+              {sortedVisibleUsers.map(emp => <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>)}
             </select>
             <div className="flex items-end gap-2 w-full sm:w-auto">
               <div className="space-y-1">
@@ -997,11 +1017,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="date"
                     value={attendanceDateFilter}
                     onChange={e => setAttendanceDateFilter(e.target.value)}
-                    className="bg-white border-2 border-slate-100 rounded-2xl px-4 py-3 pr-10 text-[10px] font-black uppercase outline-none focus:border-blue-500 shadow-sm w-full sm:w-auto text-slate-700 cursor-pointer"
+                    className="bg-white border-2 border-slate-100 rounded-2xl px-4 py-3 pr-10 text-[10px] font-black uppercase outline-none focus:border-blue-500 shadow-sm w-full sm:w-auto text-slate-700 cursor-pointer appearance-none"
                     ref={attendanceDateRef}
                     onClick={() => {
                       attendanceDateRef.current?.showPicker?.();
                       attendanceDateRef.current?.focus();
+                    }}
+                    onFocus={() => {
+                      attendanceDateRef.current?.showPicker?.();
                     }}
                   />
                   <button
@@ -1010,7 +1033,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       attendanceDateRef.current?.showPicker?.();
                       attendanceDateRef.current?.focus();
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all z-10"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                   </button>
@@ -1081,6 +1104,92 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </tbody>
               </table>
             </div>
+          </div>
+          <div className="glass-card rounded-[2.5rem] p-6 sm:p-8">
+            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Monthly View</h3>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{monthSummaryLabel}{selectedEmployee ? ` • ${selectedEmployee.name}` : ''}</p>
+              </div>
+              <div className="flex items-end gap-2">
+                <div className="space-y-1">
+                  <label htmlFor="admin-attendance-month" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Month</label>
+                  <div className="relative">
+                    <input
+                      id="admin-attendance-month"
+                      type="month"
+                      value={attendanceMonthFilter}
+                      onChange={e => setAttendanceMonthFilter(e.target.value)}
+                      className="bg-white border-2 border-slate-100 rounded-2xl px-4 py-3 pr-10 text-[10px] font-black uppercase outline-none focus:border-blue-500 shadow-sm w-full sm:w-auto text-slate-700 cursor-pointer appearance-none"
+                      ref={attendanceMonthRef}
+                      onClick={() => {
+                        attendanceMonthRef.current?.showPicker?.();
+                        attendanceMonthRef.current?.focus();
+                      }}
+                      onFocus={() => {
+                        attendanceMonthRef.current?.showPicker?.();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        attendanceMonthRef.current?.showPicker?.();
+                        attendanceMonthRef.current?.focus();
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all z-10"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="px-3 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    Total: {formatDuration(monthTotalHours)}
+                  </div>
+                  <div className="px-3 py-2 rounded-xl bg-emerald-50 text-[10px] font-black uppercase tracking-widest text-emerald-600">
+                    OT: {formatDuration(monthOvertimeHours)}
+                  </div>
+                </div>
+              </div>
+            </div>
+            {selectedEmp === 'all' ? (
+              <div className="text-center py-10 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase text-[9px] tracking-widest">Select an employee to view month</div>
+            ) : sortedMonthlyAttendance.length === 0 ? (
+              <div className="text-center py-10 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase text-[9px] tracking-widest">No records for this month</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-left">
+                  <thead>
+                    <tr className="bg-slate-50/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Date</th>
+                      <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Check In</th>
+                      <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Check Out</th>
+                      <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {sortedMonthlyAttendance.map(r => (
+                      <tr key={r.id} className="hover:bg-blue-50/20 transition-all">
+                        <td className="px-4 md:px-6 2xl:px-8 py-6 text-xs font-bold text-slate-500">{r.date}</td>
+                        <td className="px-4 md:px-6 2xl:px-8 py-6">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 md:px-6 2xl:px-8 py-6">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-black">{r.checkOut ? formatTimeInZone(r.checkOut) : 'Active'}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'Overtime' ? 'border-emerald-100 text-emerald-600 bg-emerald-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-400 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-blue-600">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1205,7 +1314,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {visibleUsers.map(u => {
+                {sortedVisibleUsers.map(u => {
                   const ot = calculateWeeklyOvertime(u.id, visibleRecords);
                   return (
                     <tr key={u.id}>

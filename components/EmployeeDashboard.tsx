@@ -107,6 +107,11 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [attendanceDateFilter, setAttendanceDateFilter] = useState('');
   const attendanceDateRef = useRef<HTMLInputElement | null>(null);
+  const [attendanceMonthFilter, setAttendanceMonthFilter] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const attendanceMonthRef = useRef<HTMLInputElement | null>(null);
 
   const isSameMonth = (dateStr: string, target: Date) => {
     const date = new Date(dateStr);
@@ -297,6 +302,16 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     if (a.date !== b.date) return b.date.localeCompare(a.date);
     return b.checkIn.localeCompare(a.checkIn);
   });
+  const defaultMonthFilter = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}`;
+  const effectiveMonthFilter = attendanceMonthFilter || defaultMonthFilter;
+  const attendanceMonthRecords = employeeRecords.filter(r => r.date.startsWith(effectiveMonthFilter));
+  const sortedMonthRecords = [...attendanceMonthRecords].sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return b.checkIn.localeCompare(a.checkIn);
+  });
+  const monthSummaryLabel = new Date(`${effectiveMonthFilter}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthTotalHours = attendanceMonthRecords.reduce((sum, r) => sum + (r.totalHours || 0), 0);
+  const monthOvertimeHours = attendanceMonthRecords.reduce((sum, r) => sum + (r.overtimeHours || 0), 0);
   const activeSeconds = activeRecord && !activeRecord.checkOut
     ? (currentTime.getTime() - new Date(activeRecord.checkIn).getTime()) / 1000
     : 0;
@@ -546,11 +561,14 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                         type="date"
                         value={attendanceDateFilter}
                         onChange={e => setAttendanceDateFilter(e.target.value)}
-                        className="px-4 py-2 pr-10 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none text-[10px] font-black text-slate-700"
+                        className="px-4 py-2 pr-10 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none text-[10px] font-black text-slate-700 cursor-pointer appearance-none"
                         ref={attendanceDateRef}
                         onClick={() => {
                           attendanceDateRef.current?.showPicker?.();
                           attendanceDateRef.current?.focus();
+                        }}
+                        onFocus={() => {
+                          attendanceDateRef.current?.showPicker?.();
                         }}
                       />
                       <button
@@ -559,7 +577,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                           attendanceDateRef.current?.showPicker?.();
                           attendanceDateRef.current?.focus();
                         }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all z-10"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                       </button>
@@ -608,6 +626,90 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                   </tbody>
                 </table>
               </div>
+            </div>
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 mt-6">
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Monthly View</h3>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{monthSummaryLabel}</p>
+                </div>
+                <div className="flex items-end gap-2">
+                  <div className="space-y-1">
+                    <label htmlFor="employee-attendance-month" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Month</label>
+                    <div className="relative">
+                      <input
+                        id="employee-attendance-month"
+                        type="month"
+                        value={attendanceMonthFilter}
+                        onChange={e => setAttendanceMonthFilter(e.target.value)}
+                        className="px-4 py-2 pr-10 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none text-[10px] font-black text-slate-700 cursor-pointer appearance-none"
+                        ref={attendanceMonthRef}
+                        onClick={() => {
+                          attendanceMonthRef.current?.showPicker?.();
+                          attendanceMonthRef.current?.focus();
+                        }}
+                        onFocus={() => {
+                          attendanceMonthRef.current?.showPicker?.();
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          attendanceMonthRef.current?.showPicker?.();
+                          attendanceMonthRef.current?.focus();
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all z-10"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="px-3 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Total: {formatDuration(monthTotalHours)}
+                    </div>
+                    <div className="px-3 py-2 rounded-xl bg-emerald-50 text-[10px] font-black uppercase tracking-widest text-emerald-600">
+                      OT: {formatDuration(monthOvertimeHours)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {sortedMonthRecords.length === 0 ? (
+                <div className="text-center py-10 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase text-[9px] tracking-widest">No records for this month</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-left">
+                    <thead>
+                      <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50">
+                        <th className="pb-4">Date</th>
+                        <th className="pb-4">Check In</th>
+                        <th className="pb-4">Check Out</th>
+                        <th className="pb-4 text-right">Hours</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {sortedMonthRecords.map(r => (
+                        <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
+                          <td className="py-6 font-black text-slate-900">{r.date}</td>
+                          <td className="py-6">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
+                              <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
+                            </div>
+                          </td>
+                          <td className="py-6">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-black">{r.checkOut ? formatTimeInZone(r.checkOut) : 'Active'}</span>
+                              <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>{getCheckoutStatus(r)}</span>
+                            </div>
+                          </td>
+                          <td className="py-6 font-black text-blue-600 text-right">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </div>

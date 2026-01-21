@@ -506,6 +506,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const attendanceMonthRef = useRef<HTMLInputElement | null>(null);
+  const [attendancePage, setAttendancePage] = useState(1);
+  const attendancePageSize = 15;
   const resolveRecordDate = (record: AttendanceRecord) =>
     record.date || getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
   const [docForm, setDocForm] = useState<Record<string, string>>(() => {
@@ -581,8 +583,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const aDate = resolveRecordDate(a);
     const bDate = resolveRecordDate(b);
     if (aDate !== bDate) return bDate.localeCompare(aDate);
+    const aName = (users.find(u => u.id === a.userId)?.name || a.userName || '').toLowerCase();
+    const bName = (users.find(u => u.id === b.userId)?.name || b.userName || '').toLowerCase();
+    if (aName !== bName) return aName.localeCompare(bName);
     return b.checkIn.localeCompare(a.checkIn);
   });
+  const totalAttendancePages = Math.max(1, Math.ceil(sortedAttendance.length / attendancePageSize));
+  const safeAttendancePage = Math.min(attendancePage, totalAttendancePages);
+  const attendanceStartIndex = (safeAttendancePage - 1) * attendancePageSize;
+  const pagedAttendance = sortedAttendance.slice(attendanceStartIndex, attendanceStartIndex + attendancePageSize);
   const defaultMonthFilter = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
   const effectiveMonthFilter = attendanceMonthFilter || defaultMonthFilter;
   const monthlyAttendanceBase = selectedEmp === 'all'
@@ -629,6 +638,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setLeaveStartDate(today);
     setLeaveEndDate(today);
   }, [user.id, user.name, user.employeeId]);
+
+  useEffect(() => {
+    setAttendancePage(1);
+  }, [selectedEmp, attendanceDateFilter]);
+
+  useEffect(() => {
+    if (attendancePage > totalAttendancePages) {
+      setAttendancePage(totalAttendancePages);
+    }
+  }, [attendancePage, totalAttendancePages]);
 
   useEffect(() => {
     if (!salarySlipSelfOnly) return;
@@ -1207,7 +1226,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {sortedAttendance.map(r => {
+                {pagedAttendance.map(r => {
                   const recordUser = users.find(u => u.id === r.userId);
                   const roleLabel = recordUser?.position || recordUser?.role || 'Employee';
                   return (
@@ -1464,6 +1483,34 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 })}
               </tbody>
               </table>
+            </div>
+          </div>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+              Showing {sortedAttendance.length === 0 ? 0 : attendanceStartIndex + 1}
+              -
+              {Math.min(attendanceStartIndex + attendancePageSize, sortedAttendance.length)} of {sortedAttendance.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAttendancePage(prev => Math.max(1, prev - 1))}
+                disabled={safeAttendancePage <= 1}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all disabled:opacity-40"
+              >
+                Prev
+              </button>
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                Page {safeAttendancePage} / {totalAttendancePages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setAttendancePage(prev => Math.min(totalAttendancePages, prev + 1))}
+                disabled={safeAttendancePage >= totalAttendancePages}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all disabled:opacity-40"
+              >
+                Next
+              </button>
             </div>
           </div>
         </div>

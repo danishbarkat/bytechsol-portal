@@ -684,22 +684,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const now = new Date();
-  const myMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const myMonthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const myMonthlySalary = calculateTotalSalary(user.basicSalary, user.allowances, user.salary);
-  const myMonthRecords = records.filter(r => r.userId === user.id && resolveRecordDate(r).startsWith(myMonthKey));
-  const myOvertimeMinutesThisMonth = myMonthRecords.reduce((sum, record) => sum + getOvertimeMinutesForRecord(record), 0);
-  const myOvertimeHoursThisMonth = myOvertimeMinutesThisMonth / 60;
-  const myHourlyRate = myMonthlySalary > 0 ? (myMonthlySalary / 30) / shiftHours : 0;
-  const myOvertimePay = myOvertimeHoursThisMonth * myHourlyRate;
-  const myUnpaidLeaveDays = leaves
-    .filter(l => l.userId === user.id && l.status === 'Approved' && l.isPaid === false)
-    .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, now), 0);
-  const myLeaveDeduction = myUnpaidLeaveDays * (myMonthlySalary / 30);
-  const myTaxableSalary = Math.max(0, myMonthlySalary - myLeaveDeduction);
-  const myMonthlyTax = calculateMonthlyTax(myTaxableSalary);
-  const mySalaryAfterTax = Math.max(0, myTaxableSalary - myMonthlyTax);
-  const myNetPay = mySalaryAfterTax + myOvertimePay;
+  const buildSalarySnapshot = (targetUser: User | null) => {
+    if (!targetUser) return null;
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const monthlySalary = calculateTotalSalary(targetUser.basicSalary, targetUser.allowances, targetUser.salary);
+    const monthRecords = records.filter(r => r.userId === targetUser.id && resolveRecordDate(r).startsWith(monthKey));
+    const overtimeMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getOvertimeMinutesForRecord(record), 0);
+    const overtimeHoursThisMonth = overtimeMinutesThisMonth / 60;
+    const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / shiftHours : 0;
+    const overtimePay = overtimeHoursThisMonth * hourlyRate;
+    const unpaidLeaveDays = leaves
+      .filter(l => l.userId === targetUser.id && l.status === 'Approved' && l.isPaid === false)
+      .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, now), 0);
+    const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
+    const taxableSalary = Math.max(0, monthlySalary - leaveDeduction);
+    const monthlyTax = calculateMonthlyTax(taxableSalary);
+    const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
+    const netPay = salaryAfterTax + overtimePay;
+    return {
+      monthKey,
+      monthLabel,
+      monthlySalary,
+      overtimeHoursThisMonth,
+      overtimePay,
+      unpaidLeaveDays,
+      leaveDeduction,
+      taxableSalary,
+      monthlyTax,
+      salaryAfterTax,
+      netPay
+    };
+  };
+  const mySnapshot = buildSalarySnapshot(user);
+  const selectedSnapshot = buildSalarySnapshot(selectedDocUserId !== 'manual' ? users.find(u => u.id === selectedDocUserId) || null : null);
 
   const handleDocumentUserSelect = (userId: string) => {
     setSelectedDocUserId(userId);
@@ -1016,11 +1034,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     a.click();
   };
 
-  const downloadMySalarySlip = () => {
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const slipId = `${user.employeeId}_${monthKey}`;
-    const basicPay = Number(user.basicSalary) || (Number(user.salary) || 0);
-    const allowancePay = Number(user.allowances) || 0;
+  const downloadSalarySlipForUser = (targetUser: User, snapshot: NonNullable<ReturnType<typeof buildSalarySnapshot>>) => {
+    const slipId = `${targetUser.employeeId}_${snapshot.monthKey}`;
+    const basicPay = Number(targetUser.basicSalary) || (Number(targetUser.salary) || 0);
+    const allowancePay = Number(targetUser.allowances) || 0;
     const html = `<!doctype html>
       <html>
         <head>
@@ -1043,22 +1060,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <body>
           <div class="card">
             <h1>Salary Slip</h1>
-            <div class="meta">Month: ${myMonthLabel} • Employee: ${user.name} • ID: ${user.employeeId}</div>
+            <div class="meta">Month: ${snapshot.monthLabel} • Employee: ${targetUser.name} • ID: ${targetUser.employeeId}</div>
             <table>
               <tr><th>Earnings</th><th>Amount</th></tr>
               <tr><td>Basic Salary</td><td>${formatCurrency(basicPay)}</td></tr>
               <tr><td>Allowances</td><td>${formatCurrency(allowancePay)}</td></tr>
-              <tr><td>Overtime (${myOvertimeHoursThisMonth.toFixed(2)} hrs)</td><td>${formatCurrency(myOvertimePay)}</td></tr>
+              <tr><td>Overtime (${snapshot.overtimeHoursThisMonth.toFixed(2)} hrs)</td><td>${formatCurrency(snapshot.overtimePay)}</td></tr>
               <tr><th>Deductions</th><th>Amount</th></tr>
-              <tr><td>Unpaid Leave (${myUnpaidLeaveDays} days)</td><td>- ${formatCurrency(myLeaveDeduction)}</td></tr>
-              <tr><td>Tax (PK progressive)</td><td>- ${formatCurrency(myMonthlyTax)}</td></tr>
-              <tr><td class="total">Taxable Salary</td><td class="total">${formatCurrency(myTaxableSalary)}</td></tr>
-              <tr><td class="total">Salary After Tax</td><td class="total">${formatCurrency(mySalaryAfterTax)}</td></tr>
-              <tr><td class="total">Net Pay (with overtime)</td><td class="total">${formatCurrency(myNetPay)}</td></tr>
+              <tr><td>Unpaid Leave (${snapshot.unpaidLeaveDays} days)</td><td>- ${formatCurrency(snapshot.leaveDeduction)}</td></tr>
+              <tr><td>Tax (PK progressive)</td><td>- ${formatCurrency(snapshot.monthlyTax)}</td></tr>
+              <tr><td class="total">Taxable Salary</td><td class="total">${formatCurrency(snapshot.taxableSalary)}</td></tr>
+              <tr><td class="total">Salary After Tax</td><td class="total">${formatCurrency(snapshot.salaryAfterTax)}</td></tr>
+              <tr><td class="total">Net Pay (with overtime)</td><td class="total">${formatCurrency(snapshot.netPay)}</td></tr>
             </table>
             <div class="summary">
               <div>Overtime is not taxed</div>
-              <div class="net">${formatCurrency(myNetPay)}</div>
+              <div class="net">${formatCurrency(snapshot.netPay)}</div>
             </div>
           </div>
         </body>
@@ -1538,52 +1555,82 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {tab === 'documents' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-4 space-y-6">
-            {user.role === Role.HR && (
+            {(user.role === Role.HR || user.role === Role.CEO) && (
               <div className="glass-card rounded-[2.5rem] p-8 space-y-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">My Salary Snapshot</h3>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{myMonthLabel}</p>
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">
+                      {user.role === Role.CEO ? 'Employee Salary Snapshot' : 'My Salary Snapshot'}
+                    </h3>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                      {(user.role === Role.CEO ? selectedSnapshot?.monthLabel : mySnapshot?.monthLabel) || now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={downloadMySalarySlip}
-                    className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition-all"
-                  >
-                    Download
-                  </button>
+                  {(user.role === Role.HR ? Boolean(mySnapshot) : Boolean(selectedSnapshot)) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetUser = user.role === Role.CEO
+                          ? users.find(u => u.id === selectedDocUserId) || null
+                          : user;
+                        const snapshot = user.role === Role.CEO ? selectedSnapshot : mySnapshot;
+                        if (targetUser && snapshot) {
+                          downloadSalarySlipForUser(targetUser, snapshot);
+                        }
+                      }}
+                      className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition-all"
+                    >
+                      Download
+                    </button>
+                  )}
                 </div>
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-500">Base Salary</span>
-                    <span className="font-black text-slate-900">{formatCurrency(myMonthlySalary)}</span>
+                {user.role === Role.CEO && !selectedSnapshot ? (
+                  <div className="text-center py-8 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase text-[9px] tracking-widest">
+                    Select an employee to view snapshot
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-500">Unpaid Leaves ({myUnpaidLeaveDays} days)</span>
-                    <span className="font-black text-rose-500">- {formatCurrency(myLeaveDeduction)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-500">Overtime ({myOvertimeHoursThisMonth.toFixed(2)} hrs)</span>
-                    <span className="font-black text-emerald-600">+ {formatCurrency(myOvertimePay)}</span>
-                  </div>
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                    <span className="font-bold text-slate-600">Taxable Salary</span>
-                    <span className="font-black text-slate-900">{formatCurrency(myTaxableSalary)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-500">Tax (PK progressive)</span>
-                    <span className="font-black text-amber-600">- {formatCurrency(myMonthlyTax)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-600">Salary After Tax</span>
-                    <span className="font-black text-slate-900">{formatCurrency(mySalaryAfterTax)}</span>
-                  </div>
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                    <span className="font-black text-slate-900">Salary with Overtime</span>
-                    <span className="font-black text-blue-600">{formatCurrency(myNetPay)}</span>
-                  </div>
-                </div>
-                <p className="text-[8px] font-bold text-slate-300 uppercase text-center">Overtime is not taxed</p>
+                ) : (
+                  <>
+                    {(() => {
+                      const snapshot = user.role === Role.CEO ? selectedSnapshot : mySnapshot;
+                      if (!snapshot) return null;
+                      return (
+                        <>
+                          <div className="space-y-2 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-500">Base Salary</span>
+                              <span className="font-black text-slate-900">{formatCurrency(snapshot.monthlySalary)}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-500">Unpaid Leaves ({snapshot.unpaidLeaveDays} days)</span>
+                              <span className="font-black text-rose-500">- {formatCurrency(snapshot.leaveDeduction)}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-500">Overtime ({snapshot.overtimeHoursThisMonth.toFixed(2)} hrs)</span>
+                              <span className="font-black text-emerald-600">+ {formatCurrency(snapshot.overtimePay)}</span>
+                            </div>
+                            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                              <span className="font-bold text-slate-600">Taxable Salary</span>
+                              <span className="font-black text-slate-900">{formatCurrency(snapshot.taxableSalary)}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-500">Tax (PK progressive)</span>
+                              <span className="font-black text-amber-600">- {formatCurrency(snapshot.monthlyTax)}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-600">Salary After Tax</span>
+                              <span className="font-black text-slate-900">{formatCurrency(snapshot.salaryAfterTax)}</span>
+                            </div>
+                            <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                              <span className="font-black text-slate-900">Salary with Overtime</span>
+                              <span className="font-black text-blue-600">{formatCurrency(snapshot.netPay)}</span>
+                            </div>
+                          </div>
+                          <p className="text-[8px] font-bold text-slate-300 uppercase text-center">Overtime is not taxed</p>
+                        </>
+                      );
+                    })()}
+                  </>
+                )}
               </div>
             )}
             <div className="glass-card rounded-[2.5rem] p-8 space-y-6">

@@ -27,6 +27,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
   }, []);
   const [currentTime, setCurrentTime] = useState(() => formatter.format(new Date()));
   const [showNotifications, setShowNotifications] = useState(false);
+  const autoOpenedRef = React.useRef(false);
   const unreadCount = notifications.filter(n => !n.read).length;
   const sortedNotifications = [...notifications].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -35,6 +36,14 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
     const interval = window.setInterval(tick, 1000);
     return () => window.clearInterval(interval);
   }, [formatter]);
+
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (unreadCount > 0) {
+      setShowNotifications(true);
+      autoOpenedRef.current = true;
+    }
+  }, [unreadCount]);
 
   return (
     <div className="min-h-screen flex flex-col">

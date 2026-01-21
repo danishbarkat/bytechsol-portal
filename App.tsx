@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { User, AttendanceRecord, Role, CheckInStatus, LeaveRequest, ESSProfile, UserChecklist, WorkFromHomeRequest } from './types';
+import { User, AttendanceRecord, Role, CheckInStatus, LeaveRequest, ESSProfile, UserChecklist, WorkFromHomeRequest, AppNotification } from './types';
 import { APP_CONFIG, MOCK_USERS } from './constants';
 import logoUrl from './asset/public/logo.svg';
 import {
@@ -33,6 +33,7 @@ import EmployeeDashboard from './components/EmployeeDashboard';
 
 const SAVED_SESSION_KEY = 'bytechsol_saved_session';
 const SAVED_LOGIN_KEY = 'bytechsol_saved_login';
+const NOTIFICATION_STORAGE_KEY = 'bytechsol_notifications';
 
 const isSameMonth = (dateStr: string, target: Date): boolean => {
   const date = new Date(dateStr);
@@ -110,6 +111,51 @@ const normalizeOvertimeRecords = (list: AttendanceRecord[]) => {
   return { normalized, changed };
 };
 
+const playNotificationSound = () => {
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 880;
+    gain.gain.value = 0.08;
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.2);
+    oscillator.onended = () => ctx.close();
+  } catch {
+    // Ignore audio failures.
+  }
+};
+
+const hasNumber = (value: unknown) => Number.isFinite(Number(value));
+
+const getMissingFields = (target: User, profile?: ESSProfile) => {
+  const missing: string[] = [];
+  if (!target.firstName?.trim()) missing.push('First Name');
+  if (!target.lastName?.trim()) missing.push('Last Name');
+  if (!target.dob?.trim()) missing.push('Date of Birth');
+  if (!target.phone?.trim()) missing.push('Phone Number');
+  if (!target.email?.trim()) missing.push('Email Address');
+  if (!target.password?.trim()) missing.push('Security Key (Password)');
+  if (!target.pin?.trim() || target.pin.trim().length !== 4) missing.push('4 Digit PIN');
+  if (!target.employeeId?.trim()) missing.push('Employee ID');
+  if (!hasNumber(target.basicSalary)) missing.push('Basic Salary');
+  if (!hasNumber(target.allowances)) missing.push('Allowances');
+  if (!target.position?.trim()) missing.push('Job Position');
+  if (!target.role) missing.push('Corporate Role');
+  if (!target.workMode) missing.push('Work Mode');
+  if (!target.grade?.trim()) missing.push('Employee Grade');
+  if (!target.teamLead?.trim()) missing.push('Team Lead');
+  if (!profile?.emergencyContactName?.trim()) missing.push('Emergency Contact');
+  if (!profile?.emergencyContactPhone?.trim()) missing.push('Emergency Phone');
+  if (!profile?.emergencyContactRelation?.trim()) missing.push('Emergency Relation');
+  return missing;
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [employeeIdInput, setEmployeeIdInput] = useState('');
@@ -122,11 +168,40 @@ const App: React.FC = () => {
   const [checklists, setChecklists] = useState<UserChecklist[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [wfhRequests, setWfhRequests] = useState<WorkFromHomeRequest[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isWifiConnected, setIsWifiConnected] = useState(false);
   const [ipStatus, setIpStatus] = useState<'checking' | 'allowed' | 'blocked'>('checking');
   const [publicIp, setPublicIp] = useState<string | null>(null);
   const remoteLoginIds = (APP_CONFIG.REMOTE_LOGIN_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
+  const addOrUpdateNotification = useCallback((nextNotification: AppNotification, forceUnread = false) => {
+    setNotifications(prev => {
+      const index = prev.findIndex(n => n.id === nextNotification.id);
+      if (index === -1) {
+        return [...prev, nextNotification];
+      }
+      const existing = prev[index];
+      const updated = [...prev];
+      updated[index] = {
+        ...existing,
+        ...nextNotification,
+        read: forceUnread ? false : existing.read
+      };
+      return updated;
+    });
+    if (nextNotification.playSound && user?.id === nextNotification.userId) {
+      playNotificationSound();
+    }
+  }, [user?.id]);
+
+  const markNotificationRead = useCallback((notificationId: string) => {
+    setNotifications(prev => prev.map(n => (n.id === notificationId ? { ...n, read: true } : n)));
+  }, []);
+
+  const markAllNotificationsRead = useCallback(() => {
+    if (!user) return;
+    setNotifications(prev => prev.map(n => (n.userId === user.id ? { ...n, read: true } : n)));
+  }, [user]);
 
   useEffect(() => {
     let active = true;
@@ -174,6 +249,67 @@ const App: React.FC = () => {
       window.removeEventListener('online', checkWifi);
     };
   }, []);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as AppNotification[];
+      if (Array.isArray(parsed)) {
+        setNotifications(parsed);
+      }
+    } catch {
+      localStorage.removeItem(NOTIFICATION_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(notifications));
+  }, [notifications]);
+
+  useEffect(() => {
+    if (users.length === 0) return;
+    setNotifications(prev => {
+      const existingMap = new Map(prev.map(n => [n.id, n]));
+      const staticNotifications = prev.filter(n => !n.autoGenerated);
+      const hrUsers = users.filter(u => u.role === Role.HR);
+      const autoNotifications: AppNotification[] = [];
+      users
+        .filter(u => u.role !== Role.SUPERADMIN)
+        .forEach(target => {
+          const profile = essProfiles.find(p => p.userId === target.id);
+          const missingFields = getMissingFields(target, profile);
+          if (missingFields.length === 0) return;
+          const missingLabel = missingFields.join(', ');
+          const selfId = `profile-incomplete:${target.id}`;
+          const existingSelf = existingMap.get(selfId);
+          autoNotifications.push({
+            id: selfId,
+            userId: target.id,
+            title: 'Profile incomplete',
+            message: `Missing: ${missingLabel}`,
+            createdAt: existingSelf?.createdAt || new Date().toISOString(),
+            read: false,
+            autoGenerated: true
+          });
+          hrUsers.forEach(hr => {
+            if (hr.id === target.id) return;
+            const hrId = `hr-incomplete:${hr.id}:${target.id}`;
+            const existingHr = existingMap.get(hrId);
+            autoNotifications.push({
+              id: hrId,
+              userId: hr.id,
+              title: 'Employee details incomplete',
+              message: `${target.name} (${target.employeeId}) missing: ${missingLabel}`,
+              createdAt: existingHr?.createdAt || new Date().toISOString(),
+              read: false,
+              autoGenerated: true
+            });
+          });
+        });
+      return [...staticNotifications, ...autoNotifications];
+    });
+  }, [users, essProfiles]);
 
   useEffect(() => {
     const raw = localStorage.getItem(SAVED_LOGIN_KEY);
@@ -419,9 +555,21 @@ const App: React.FC = () => {
 
   const handleLeaveAction = (leaveId: string, action: 'Approved' | 'Rejected') => {
     if (user?.role !== Role.CEO && user?.role !== Role.SUPERADMIN) return;
+    const targetLeave = leaves.find(l => l.id === leaveId);
     const updated = leaves.map(l => l.id === leaveId ? { ...l, status: action } : l);
     setLeaves(updated);
     void saveLeaves(updated);
+    if (targetLeave) {
+      addOrUpdateNotification({
+        id: `leave-status:${leaveId}`,
+        userId: targetLeave.userId,
+        title: `Leave ${action}`,
+        message: `Your leave ${targetLeave.startDate} to ${targetLeave.endDate} was ${action.toLowerCase()}.`,
+        createdAt: new Date().toISOString(),
+        read: false,
+        playSound: true
+      }, true);
+    }
   };
 
   const handleSubmitWfhRequest = (reason: string, startDate: string, endDate: string) => {
@@ -694,8 +842,18 @@ const App: React.FC = () => {
     setUser(null);
   };
 
+  const currentUserNotifications = notifications
+    .filter(n => n.userId === user.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
   return (
-    <Layout user={user} onLogout={handleLogout}>
+    <Layout
+      user={user}
+      onLogout={handleLogout}
+      notifications={currentUserNotifications}
+      onMarkNotificationRead={markNotificationRead}
+      onMarkAllNotificationsRead={markAllNotificationsRead}
+    >
       {user.role === Role.EMPLOYEE ? (
         <EmployeeDashboard
           user={user}

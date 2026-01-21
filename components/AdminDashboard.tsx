@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AttendanceRecord, LeaveRequest, Role, User, ESSProfile, UserChecklist } from '../types';
+import { AttendanceRecord, LeaveRequest, Role, User, ESSProfile, UserChecklist, WorkFromHomeRequest } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
 import { addDaysToDateString, getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, buildZonedISOString, formatTimeInZone } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
@@ -415,6 +415,7 @@ interface AdminDashboardProps {
   users: User[];
   records: AttendanceRecord[];
   leaves: LeaveRequest[];
+  wfhRequests: WorkFromHomeRequest[];
   essProfiles: ESSProfile[];
   checklists: UserChecklist[];
   onLeaveAction: (id: string, action: 'Approved' | 'Rejected') => void;
@@ -427,6 +428,7 @@ interface AdminDashboardProps {
   onUpdateUser: (user: User) => void;
   onDeleteUser: (userId: string) => void;
   onSubmitLeave: (start: string, end: string, reason: string) => void;
+  onWfhAction: (id: string, action: 'Approved' | 'Rejected') => void;
   onUpdateESS: (profile: ESSProfile) => void;
 }
 
@@ -435,6 +437,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   users,
   records,
   leaves,
+  wfhRequests,
   essProfiles,
   checklists,
   onLeaveAction,
@@ -447,6 +450,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateUser,
   onDeleteUser,
   onSubmitLeave,
+  onWfhAction,
   onUpdateESS
 }) => {
   const [tab, setTab] = useState<'attendance' | 'leaves' | 'overtime' | 'personnel' | 'documents'>('attendance');
@@ -541,6 +545,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const visibleUserIds = new Set(visibleUsers.map(u => u.id));
   const visibleRecords = isSuperadmin ? records : records.filter(r => visibleUserIds.has(r.userId));
   const visibleLeaves = isSuperadmin ? leaves : leaves.filter(l => visibleUserIds.has(l.userId));
+  const visibleWfh = isSuperadmin ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));
   const filteredAttendanceBase = selectedEmp === 'all' ? visibleRecords : visibleRecords.filter(r => r.userId === selectedEmp);
   const filteredAttendance = attendanceDateFilter
     ? filteredAttendanceBase.filter(r => r.date === attendanceDateFilter)
@@ -1111,6 +1116,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 )}
               </div>
             ))}
+          </div>
+
+          <div className="glass-card rounded-[2.5rem] p-8">
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Work From Home Requests</h3>
+            {visibleWfh.length === 0 ? (
+              <div className="text-center py-16 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase tracking-widest text-xs">No WFH Requests</div>
+            ) : (
+              <div className="space-y-4">
+                {visibleWfh.map(req => (
+                  <div key={req.id} className="glass-card rounded-[2rem] p-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="font-black text-lg text-slate-900">{req.userName}</span>
+                        <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600' : req.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{req.status}</span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-500">Requested on {new Date(req.submittedAt).toLocaleDateString()}</p>
+                      <p className="text-sm font-medium text-slate-700 italic">"{req.reason}"</p>
+                    </div>
+                    {req.status === 'Pending' && (
+                      <div className="flex flex-wrap gap-2">
+                        {canApprove ? (
+                          <>
+                            <button onClick={() => onWfhAction(req.id, 'Approved')} className="bg-emerald-500 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 transition-all">Approve</button>
+                            <button onClick={() => onWfhAction(req.id, 'Rejected')} className="bg-rose-500 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-600 transition-all">Reject</button>
+                          </>
+                        ) : (
+                          <span className="text-[10px] font-black text-slate-300 uppercase italic">Awaiting CEO Action</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

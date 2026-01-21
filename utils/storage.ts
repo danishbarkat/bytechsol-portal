@@ -1,4 +1,4 @@
-import { AttendanceRecord, LeaveRequest, ESSProfile, UserChecklist, User, Role } from '../types';
+import { AttendanceRecord, LeaveRequest, ESSProfile, UserChecklist, User, Role, WorkFromHomeRequest } from '../types';
 import { APP_CONFIG } from '../constants';
 import { getShiftAdjustedMinutes, getLocalTimeMinutes } from './dates';
 import { supabase, isSupabaseConfigured } from './supabase';
@@ -8,6 +8,7 @@ const LEAVES_KEY = 'bytechsol_leaves';
 const ESS_KEY = 'bytechsol_ess';
 const CHECKLISTS_KEY = 'bytechsol_checklists';
 const USERS_KEY = 'bytechsol_users';
+const WFH_KEY = 'bytechsol_wfh_requests';
 
 const safeJsonParse = <T>(value: string | null, fallback: T): T => {
   if (!value) return fallback;
@@ -129,6 +130,24 @@ const mapLeaveToDb = (leave: LeaveRequest) => ({
   is_paid: leave.isPaid ?? null
 });
 
+const mapWfhFromDb = (row: Record<string, any>): WorkFromHomeRequest => ({
+  id: String(pickValue(row, ['id'], '')),
+  userId: String(pickValue(row, ['user_id', 'userId'], '')),
+  userName: String(pickValue(row, ['user_name', 'userName'], '')),
+  reason: String(pickValue(row, ['reason'], '')),
+  status: pickValue(row, ['status'], 'Pending'),
+  submittedAt: String(pickValue(row, ['submitted_at', 'submittedAt'], ''))
+});
+
+const mapWfhToDb = (request: WorkFromHomeRequest) => ({
+  id: request.id,
+  user_id: request.userId,
+  user_name: request.userName,
+  reason: request.reason,
+  status: request.status,
+  submitted_at: request.submittedAt
+});
+
 const mapEssFromDb = (row: Record<string, any>): ESSProfile => ({
   userId: String(pickValue(row, ['user_id', 'userId'], '')),
   emergencyContactName: String(pickValue(row, ['emergency_contact_name', 'emergencyContactName'], '')),
@@ -219,6 +238,19 @@ export const loadLeaves = async (): Promise<LeaveRequest[]> => {
   return mapped;
 };
 
+export const loadWfhRequests = async (): Promise<WorkFromHomeRequest[]> => {
+  const local = loadLocal<WorkFromHomeRequest[]>(WFH_KEY, []);
+  if (!isSupabaseConfigured || !supabase) return local;
+  const { data, error } = await supabase.from('wfh_requests').select('*');
+  if (error || !data) {
+    logSupabaseError('loadWfhRequests', error);
+    return local;
+  }
+  const mapped = data.map(mapWfhFromDb);
+  saveLocal(WFH_KEY, mapped);
+  return mapped;
+};
+
 export const saveLeaves = async (leaves: LeaveRequest[]) => {
   saveLocal(LEAVES_KEY, leaves);
   if (!isSupabaseConfigured || !supabase) return;
@@ -229,6 +261,15 @@ export const saveLeaves = async (leaves: LeaveRequest[]) => {
   }
 };
 
+export const saveWfhRequests = async (requests: WorkFromHomeRequest[]) => {
+  saveLocal(WFH_KEY, requests);
+  if (!isSupabaseConfigured || !supabase) return;
+  const payload = requests.map(mapWfhToDb);
+  const { error } = await supabase.from('wfh_requests').upsert(payload, { onConflict: 'id' });
+  if (error) {
+    logSupabaseError('saveWfhRequests', error);
+  }
+};
 export const loadESSProfiles = async (): Promise<ESSProfile[]> => {
   const local = loadLocal<ESSProfile[]>(ESS_KEY, []);
   if (!isSupabaseConfigured || !supabase) return local;
@@ -411,6 +452,7 @@ export const deleteUserData = async (userId: string) => {
   const tasks = [
     supabase.from('attendance_records').delete().eq('user_id', userId),
     supabase.from('leave_requests').delete().eq('user_id', userId),
+    supabase.from('wfh_requests').delete().eq('user_id', userId),
     supabase.from('ess_profiles').delete().eq('user_id', userId),
     supabase.from('checklists').delete().eq('user_id', userId),
     supabase.from('users').delete().eq('id', userId)

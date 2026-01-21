@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist, Role } from '../types';
+import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist, Role, WorkFromHomeRequest } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
 import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, formatTimeInZone } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
@@ -55,12 +55,14 @@ interface EmployeeDashboardProps {
   user: User;
   records: AttendanceRecord[];
   leaves: LeaveRequest[];
+  wfhRequests: WorkFromHomeRequest[];
   essProfiles: ESSProfile[];
   checklists: UserChecklist[];
   onCheckIn: () => void;
   onCheckOut: () => void;
   isWifiConnected: boolean;
   onSubmitLeave: (start: string, end: string, reason: string) => void;
+  onSubmitWfhRequest: (reason: string) => void;
   onUpdateESS: (profile: ESSProfile) => void;
   onUpdateChecklist: (checklist: UserChecklist) => void;
   onUpdateUser: (user: User) => void;
@@ -71,12 +73,14 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   user,
   records,
   leaves,
+  wfhRequests,
   essProfiles,
   checklists,
   onCheckIn,
   onCheckOut,
   isWifiConnected,
   onSubmitLeave,
+  onSubmitWfhRequest,
   onUpdateESS,
   onUpdateChecklist,
   onUpdateUser,
@@ -86,6 +90,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const buildLeaveTemplate = (employee: User) =>
     `Leave Application\n\nReason:\n\nRegards,\n${employee.name}\nID: ${employee.employeeId}`;
   const [leaveApplication, setLeaveApplication] = useState(buildLeaveTemplate(user));
+  const [wfhReason, setWfhReason] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [profileName, setProfileName] = useState(user.name || '');
@@ -272,6 +277,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const hasShiftRecord = records.some(r => r.userId === user.id && r.date === shiftDate);
   const shiftLocked = hasShiftRecord && !activeRecord;
   const myLeaves = leaves.filter(l => l.userId === user.id).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+  const myWfhRequests = wfhRequests.filter(r => r.userId === user.id).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
   const weeklyOT = calculateWeeklyOvertime(user.id, records);
   const workMode = user.workMode || 'Onsite';
   const canTrack = workMode === 'Remote' || isWifiConnected;
@@ -581,32 +587,67 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
 
       {tab === 'leaves' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-          <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-8">
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Apply for Leave</h3>
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <label htmlFor="leave-application" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Leave Application (Template)</label>
-                <textarea id="leave-application" name="leaveApplication" value={leaveApplication} onChange={e => setLeaveApplication(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-40 resize-none" />
+          <div className="space-y-8">
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-8">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Apply for Leave</h3>
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label htmlFor="leave-application" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Leave Application (Template)</label>
+                  <textarea id="leave-application" name="leaveApplication" value={leaveApplication} onChange={e => setLeaveApplication(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-40 resize-none" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Paid leave remaining this month: {paidLeaveRemaining}</p>
+                  {paidLeaveRemaining === 0 && (
+                    <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">This request will be unpaid</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    const todayStr = getLocalDateString(new Date());
+                    onSubmitLeave(todayStr, todayStr, leaveApplication);
+                    setLeaveApplication(buildLeaveTemplate(user));
+                  }}
+                  className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl"
+                >
+                  Submit Application
+                </button>
               </div>
-              <div className="space-y-1">
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Paid leave remaining this month: {paidLeaveRemaining}</p>
-                {paidLeaveRemaining === 0 && (
-                  <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">This request will be unpaid</p>
-                )}
-              </div>
-              <button
-                onClick={() => {
-                  const todayStr = getLocalDateString(new Date());
-                  onSubmitLeave(todayStr, todayStr, leaveApplication);
-                  setLeaveApplication(buildLeaveTemplate(user));
-                }}
-                className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl"
-              >
-                Submit Application
-              </button>
+            </div>
+
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-6">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Work From Home Request</h3>
+              {user.workMode === 'Remote' ? (
+                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">You are already remote.</p>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <label htmlFor="wfh-reason" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Reason</label>
+                    <textarea
+                      id="wfh-reason"
+                      name="wfhReason"
+                      value={wfhReason}
+                      onChange={e => setWfhReason(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-24 resize-none"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const trimmed = wfhReason.trim();
+                      if (!trimmed) return;
+                      onSubmitWfhRequest(trimmed);
+                      setWfhReason('');
+                    }}
+                    className="w-full bg-slate-900 text-white py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all"
+                  >
+                    Request WFH
+                  </button>
+                </>
+              )}
             </div>
           </div>
-          <div className="space-y-4 h-[600px] overflow-y-auto pr-4">
+
+          <div className="space-y-6 h-[600px] overflow-y-auto pr-4">
             <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Request Status</h3>
             {myLeaves.length === 0 ? (
               <div className="text-center py-20 bg-slate-50 rounded-[3rem] font-black text-slate-300 uppercase text-xs tracking-widest">No requests found</div>
@@ -637,6 +678,22 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                 </div>
               ))
             )}
+            <div className="pt-6 border-t border-slate-100">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">WFH Requests</h4>
+              {myWfhRequests.length === 0 ? (
+                <div className="text-center py-10 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase text-[9px] tracking-widest">No WFH requests</div>
+              ) : (
+                myWfhRequests.map(req => (
+                  <div key={req.id} className="glass-card rounded-[2rem] p-6 mb-3 border-l-8 border-slate-300">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{new Date(req.submittedAt).toLocaleDateString()}</span>
+                      <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600' : req.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{req.status}</span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-700">"{req.reason}"</p>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

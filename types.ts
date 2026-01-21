@@ -56,6 +56,17 @@ export interface LeaveRequest {
   isPaid?: boolean;
 }
 
+export type WfhStatus = 'Pending' | 'Approved' | 'Rejected';
+
+export interface WorkFromHomeRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  reason: string;
+  status: WfhStatus;
+  submittedAt: string;
+}
+
 export interface ESSProfile {
   userId: string;
   emergencyContactName: string;

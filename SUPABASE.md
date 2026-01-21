@@ -59,6 +59,15 @@ create table if not exists leave_requests (
   is_paid boolean
 );
 
+create table if not exists wfh_requests (
+  id text primary key,
+  user_id text not null,
+  user_name text not null,
+  reason text not null,
+  status text not null,
+  submitted_at text not null
+);
+
 create table if not exists ess_profiles (
   user_id text primary key,
   emergency_contact_name text not null,
@@ -78,6 +87,7 @@ Enable realtime on these tables:
 - `users`
 - `attendance_records`
 - `leave_requests`
+- `wfh_requests`
 - `ess_profiles`
 - `checklists`
 

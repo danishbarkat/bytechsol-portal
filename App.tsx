@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { User, AttendanceRecord, Role, CheckInStatus, LeaveRequest, ESSProfile, UserChecklist } from './types';
+import { User, AttendanceRecord, Role, CheckInStatus, LeaveRequest, ESSProfile, UserChecklist, WorkFromHomeRequest } from './types';
 import { APP_CONFIG, MOCK_USERS } from './constants';
 import logoUrl from './asset/public/logo.svg';
 import {
@@ -14,6 +14,8 @@ import {
   saveChecklists,
   loadUsers,
   saveUsers,
+  loadWfhRequests,
+  saveWfhRequests,
   fetchRecordsRemote,
   fetchLeavesRemote,
   fetchEssProfilesRemote,
@@ -119,6 +121,7 @@ const App: React.FC = () => {
   const [essProfiles, setEssProfiles] = useState<ESSProfile[]>([]);
   const [checklists, setChecklists] = useState<UserChecklist[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [wfhRequests, setWfhRequests] = useState<WorkFromHomeRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isWifiConnected, setIsWifiConnected] = useState(false);
   const [ipStatus, setIpStatus] = useState<'checking' | 'allowed' | 'blocked'>('checking');
@@ -128,12 +131,13 @@ const App: React.FC = () => {
   useEffect(() => {
     let active = true;
     const init = async () => {
-      const [recordsData, leavesData, essData, checklistData, usersData] = await Promise.all([
+      const [recordsData, leavesData, essData, checklistData, usersData, wfhData] = await Promise.all([
         loadRecords(),
         loadLeaves(),
         loadESSProfiles(),
         loadChecklists(),
-        loadUsers()
+        loadUsers(),
+        loadWfhRequests()
       ]);
       if (!active) return;
       const { normalized, changed } = normalizeOvertimeRecords(recordsData);
@@ -144,6 +148,7 @@ const App: React.FC = () => {
       setLeaves(leavesData);
       setEssProfiles(essData);
       setChecklists(checklistData);
+      setWfhRequests(wfhData);
 
       const legacyEmployeeIds = new Set(['BS-ZACE002', 'BS-SAHR003', 'BS-JODE004', 'BS-JADE005']);
       const hasLegacyUsers = usersData.some(u => legacyEmployeeIds.has(u.employeeId));
@@ -252,6 +257,10 @@ const App: React.FC = () => {
       const data = await fetchLeavesRemote();
       if (active) setLeaves(data);
     };
+    const refreshWfh = async () => {
+      const data = await loadWfhRequests();
+      if (active) setWfhRequests(data);
+    };
     const refreshEss = async () => {
       const data = await fetchEssProfilesRemote();
       if (active) setEssProfiles(data);
@@ -265,6 +274,7 @@ const App: React.FC = () => {
       subscribeToTableChanges('users', refreshUsers),
       subscribeToTableChanges('attendance_records', refreshRecords),
       subscribeToTableChanges('leave_requests', refreshLeaves),
+      subscribeToTableChanges('wfh_requests', refreshWfh),
       subscribeToTableChanges('ess_profiles', refreshEss),
       subscribeToTableChanges('checklists', refreshChecklists)
     ];
@@ -400,6 +410,38 @@ const App: React.FC = () => {
     void saveLeaves(updated);
   };
 
+  const handleSubmitWfhRequest = (reason: string) => {
+    if (!user) return;
+    const newRequest: WorkFromHomeRequest = {
+      id: Math.random().toString(36).substr(2, 9),
+      userId: user.id,
+      userName: user.name,
+      reason,
+      status: 'Pending',
+      submittedAt: new Date().toISOString()
+    };
+    const updated = [...wfhRequests, newRequest];
+    setWfhRequests(updated);
+    void saveWfhRequests(updated);
+  };
+
+  const handleWfhAction = (requestId: string, action: 'Approved' | 'Rejected') => {
+    if (user?.role !== Role.CEO && user?.role !== Role.SUPERADMIN) return;
+    let targetUser: User | null = null;
+    const updated = wfhRequests.map(req => {
+      if (req.id !== requestId) return req;
+      if (action === 'Approved') {
+        targetUser = users.find(u => u.id === req.userId) || null;
+      }
+      return { ...req, status: action };
+    });
+    setWfhRequests(updated);
+    void saveWfhRequests(updated);
+    if (action === 'Approved' && targetUser) {
+      handleUpdateUser({ ...targetUser, workMode: 'Remote' });
+    }
+  };
+
   const handleSubmitLeave = (startDate: string, endDate: string, reason: string) => {
     if (!user) return;
     const leaveMonth = new Date(startDate);
@@ -503,6 +545,11 @@ const App: React.FC = () => {
     setLeaves(prev => {
       const updated = prev.filter(l => l.userId !== userId);
       void saveLeaves(updated);
+      return updated;
+    });
+    setWfhRequests(prev => {
+      const updated = prev.filter(r => r.userId !== userId);
+      void saveWfhRequests(updated);
       return updated;
     });
     setEssProfiles(prev => {
@@ -640,12 +687,14 @@ const App: React.FC = () => {
           user={user}
           records={records}
           leaves={leaves}
+          wfhRequests={wfhRequests}
           essProfiles={essProfiles}
           checklists={checklists}
           onCheckIn={handleCheckIn}
           onCheckOut={handleCheckOut}
           isWifiConnected={isWifiConnected}
           onSubmitLeave={handleSubmitLeave}
+          onSubmitWfhRequest={handleSubmitWfhRequest}
           onUpdateESS={handleUpdateESS}
           onUpdateChecklist={handleUpdateChecklist}
           onUpdateUser={handleUpdateUser}
@@ -657,6 +706,7 @@ const App: React.FC = () => {
           users={users}
           records={records}
           leaves={leaves}
+          wfhRequests={wfhRequests}
           essProfiles={essProfiles}
           checklists={checklists}
           onLeaveAction={handleLeaveAction}
@@ -669,6 +719,7 @@ const App: React.FC = () => {
           onUpdateUser={handleUpdateUser}
           onDeleteUser={handleDeleteUser}
           onSubmitLeave={handleSubmitLeave}
+          onWfhAction={handleWfhAction}
           onUpdateESS={handleUpdateESS}
         />
       )}

@@ -51,6 +51,46 @@ const extractEmployeeSuffix = (value: string): string | null => {
   return match ? match[1] : null;
 };
 
+const computeOvertimeHours = (checkInIso: string, checkOutIso: string): number => {
+  const checkInTime = new Date(checkInIso);
+  const checkOutTime = new Date(checkOutIso);
+  const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
+  const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+  const isOvernight = endMinutes <= startMinutes;
+  const adjustedEnd = isOvernight ? endMinutes + 24 * 60 : endMinutes;
+  const checkInAdjusted = getShiftAdjustedMinutes(
+    checkInTime,
+    APP_CONFIG.SHIFT_START,
+    APP_CONFIG.SHIFT_END
+  ).currentMinutes;
+  const checkOutMinutes = getLocalTimeMinutes(checkOutTime);
+  const adjustedCheckOut = isOvernight && checkOutMinutes < startMinutes
+    ? checkOutMinutes + 24 * 60
+    : checkOutMinutes;
+  const earlyMinutes = Math.max(0, startMinutes - checkInAdjusted);
+  const lateMinutes = Math.max(0, adjustedCheckOut - adjustedEnd);
+  const overtimeMinutes = earlyMinutes + lateMinutes;
+  return overtimeMinutes > 0 ? overtimeMinutes / 60 : 0;
+};
+
+const normalizeOvertimeRecords = (list: AttendanceRecord[]) => {
+  let changed = false;
+  const normalized = list.map(record => {
+    if (!record.checkIn || !record.checkOut) return record;
+    const computed = computeOvertimeHours(record.checkIn, record.checkOut);
+    const next = computed > 0 ? computed : undefined;
+    const current = Number.isFinite(record.overtimeHours) ? record.overtimeHours : 0;
+    if (Math.abs((next ?? 0) - current) > 0.01) {
+      changed = true;
+      return { ...record, overtimeHours: next };
+    }
+    return record;
+  });
+  return { normalized, changed };
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [employeeIdInput, setEmployeeIdInput] = useState('');
@@ -79,7 +119,11 @@ const App: React.FC = () => {
         loadUsers()
       ]);
       if (!active) return;
-      setRecords(recordsData);
+      const { normalized, changed } = normalizeOvertimeRecords(recordsData);
+      setRecords(normalized);
+      if (changed) {
+        void saveRecords(normalized);
+      }
       setLeaves(leavesData);
       setEssProfiles(essData);
       setChecklists(checklistData);
@@ -180,7 +224,12 @@ const App: React.FC = () => {
     };
     const refreshRecords = async () => {
       const data = await fetchRecordsRemote();
-      if (active) setRecords(data);
+      if (!active) return;
+      const { normalized, changed } = normalizeOvertimeRecords(data);
+      setRecords(normalized);
+      if (changed) {
+        void saveRecords(normalized);
+      }
     };
     const refreshLeaves = async () => {
       const data = await fetchLeavesRemote();
@@ -316,28 +365,10 @@ const App: React.FC = () => {
     const now = new Date();
     const checkInTime = new Date(activeRecord.checkIn);
     const diff = (now.getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
-    const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
-    const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
-    const startMinutes = startHour * 60 + startMinute;
-    const endMinutes = endHour * 60 + endMinute;
-    const isOvernight = endMinutes <= startMinutes;
-    const adjustedEnd = isOvernight ? endMinutes + 24 * 60 : endMinutes;
-    const checkInAdjusted = getShiftAdjustedMinutes(
-      checkInTime,
-      APP_CONFIG.SHIFT_START,
-      APP_CONFIG.SHIFT_END
-    ).currentMinutes;
-    const checkOutMinutes = getLocalTimeMinutes(now);
-    const adjustedCheckOut = isOvernight && checkOutMinutes < startMinutes
-      ? checkOutMinutes + 24 * 60
-      : checkOutMinutes;
-    const earlyMinutes = Math.max(0, startMinutes - checkInAdjusted);
-    const lateMinutes = Math.max(0, adjustedCheckOut - adjustedEnd);
-    const overtimeMinutes = earlyMinutes + lateMinutes;
-    const overtimeHours = overtimeMinutes > 0 ? overtimeMinutes / 60 : undefined;
+    const overtimeHours = computeOvertimeHours(activeRecord.checkIn, now.toISOString());
     const updated = records.map(r =>
       r.id === activeRecord.id
-        ? { ...r, checkOut: now.toISOString(), totalHours: diff, overtimeHours }
+        ? { ...r, checkOut: now.toISOString(), totalHours: diff, overtimeHours: overtimeHours > 0 ? overtimeHours : undefined }
         : r
     );
     setRecords(updated);

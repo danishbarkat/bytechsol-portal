@@ -848,6 +848,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const myShiftDate = getShiftDateString(new Date(), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
   const hasMyShiftRecord = records.some(r => r.userId === user.id && r.date === myShiftDate);
   const shiftLocked = hasMyShiftRecord && !myRecord;
+  const isSameMonth = (dateStr: string, target: Date) => {
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) {
+      return false;
+    }
+    return date.getFullYear() === target.getFullYear() && date.getMonth() === target.getMonth();
+  };
+  const lateAllowance = 3;
+  const lateCountThisMonth = records.filter(
+    r => r.userId === user.id && r.status === 'Late' && isSameMonth(resolveRecordDate(r), new Date())
+  ).length;
+  const lateRemaining = Math.max(0, lateAllowance - lateCountThisMonth);
+  const weeklyOT = calculateWeeklyOvertime(user.id, records);
 
   const startEditingRecord = (r: AttendanceRecord) => {
     setEditingRecord(r);
@@ -1119,17 +1132,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     <div className="space-y-8">
       {!isExecutive && (
         <div className="glass-card rounded-[2rem] p-6 border-2 border-white flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center space-x-4">
-            <div className={`w-3 h-3 rounded-full ${isWifiConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
-            <div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Personal Attendance (HR)</p>
-              <p className="font-black text-slate-900">
-                {myRecord
-                  ? `Active since ${new Date(myRecord.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                  : shiftLocked
-                    ? 'Shift Completed'
-                    : 'Not Checked In'}
-              </p>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center space-x-4">
+              <div className={`w-3 h-3 rounded-full ${isWifiConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Personal Attendance (HR)</p>
+                <p className="font-black text-slate-900">
+                  {myRecord
+                    ? `Active since ${new Date(myRecord.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    : shiftLocked
+                      ? 'Shift Completed'
+                      : 'Not Checked In'}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="px-4 py-3 rounded-2xl bg-blue-50 border border-blue-100">
+                <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Weekly Overtime</p>
+                <p className="text-sm font-black text-blue-600">{weeklyOT > 0 ? formatDuration(weeklyOT) : '0h 0m'}</p>
+              </div>
+              <div className="px-4 py-3 rounded-2xl bg-amber-50 border border-amber-100">
+                <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Late Allowance</p>
+                <p className="text-sm font-black text-amber-600">{lateRemaining} left</p>
+                <p className="text-[9px] font-bold text-amber-400 uppercase tracking-widest">{lateCountThisMonth}/{lateAllowance} used</p>
+              </div>
             </div>
           </div>
           <button

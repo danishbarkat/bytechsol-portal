@@ -98,6 +98,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [attendanceDateFilter, setAttendanceDateFilter] = useState('');
 
   const isSameMonth = (dateStr: string, target: Date) => {
     const date = new Date(dateStr);
@@ -275,6 +276,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const workMode = user.workMode || 'Onsite';
   const canTrack = workMode === 'Remote' || isWifiConnected;
   const salaryHidden = Boolean(user.salaryHidden);
+  const employeeRecords = records.filter(r => r.userId === user.id);
+  const filteredEmployeeRecords = attendanceDateFilter
+    ? employeeRecords.filter(r => r.date === attendanceDateFilter)
+    : employeeRecords;
   const activeSeconds = activeRecord && !activeRecord.checkOut
     ? (currentTime.getTime() - new Date(activeRecord.checkIn).getTime()) / 1000
     : 0;
@@ -513,7 +518,30 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
           </div>
           <div className="lg:col-span-8">
             <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 h-full overflow-hidden">
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-8">Activity Log</h3>
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-8">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Activity Log</h3>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="space-y-1">
+                    <label htmlFor="employee-attendance-date" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Filter Date</label>
+                    <input
+                      id="employee-attendance-date"
+                      type="date"
+                      value={attendanceDateFilter}
+                      onChange={e => setAttendanceDateFilter(e.target.value)}
+                      className="px-4 py-2 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none text-[10px] font-black text-slate-700"
+                    />
+                  </div>
+                  {attendanceDateFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceDateFilter('')}
+                      className="px-3 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] text-left">
                   <thead>
@@ -525,7 +553,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {records.filter(r => r.userId === user.id).sort((a, b) => b.date.localeCompare(a.date)).map(r => (
+                    {filteredEmployeeRecords.sort((a, b) => b.date.localeCompare(a.date)).map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
                         <td className="py-6 font-black text-slate-900">{r.date}</td>
                         <td className="py-6">

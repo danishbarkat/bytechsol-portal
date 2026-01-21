@@ -477,6 +477,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [leaveApplication, setLeaveApplication] = useState(buildLeaveTemplate(user));
   const [leaveStartDate, setLeaveStartDate] = useState(() => getLocalDateString(new Date()));
   const [leaveEndDate, setLeaveEndDate] = useState(() => getLocalDateString(new Date()));
+  const [attendanceDateFilter, setAttendanceDateFilter] = useState('');
   const [docForm, setDocForm] = useState<Record<string, string>>(() => {
     const now = new Date();
     const today = getLocalDateString(now);
@@ -540,7 +541,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const visibleUserIds = new Set(visibleUsers.map(u => u.id));
   const visibleRecords = isSuperadmin ? records : records.filter(r => visibleUserIds.has(r.userId));
   const visibleLeaves = isSuperadmin ? leaves : leaves.filter(l => visibleUserIds.has(l.userId));
-  const filteredAttendance = selectedEmp === 'all' ? visibleRecords : visibleRecords.filter(r => r.userId === selectedEmp);
+  const filteredAttendanceBase = selectedEmp === 'all' ? visibleRecords : visibleRecords.filter(r => r.userId === selectedEmp);
+  const filteredAttendance = attendanceDateFilter
+    ? filteredAttendanceBase.filter(r => r.date === attendanceDateFilter)
+    : filteredAttendanceBase;
   const canApprove = user.role === Role.CEO || user.role === Role.SUPERADMIN;
   const isExecutive = user.role === Role.CEO || user.role === Role.SUPERADMIN;
   const roleOptions = isSuperadmin
@@ -974,6 +978,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <option value="all">Global Roster</option>
               {visibleUsers.map(emp => <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>)}
             </select>
+            <div className="flex items-end gap-2 w-full sm:w-auto">
+              <div className="space-y-1">
+                <label htmlFor="admin-attendance-date" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Filter Date</label>
+                <input
+                  id="admin-attendance-date"
+                  type="date"
+                  value={attendanceDateFilter}
+                  onChange={e => setAttendanceDateFilter(e.target.value)}
+                  className="bg-white border-2 border-slate-100 rounded-2xl px-4 py-3 text-[10px] font-black uppercase outline-none focus:border-blue-500 shadow-sm w-full sm:w-auto"
+                />
+              </div>
+              {attendanceDateFilter && (
+                <button
+                  type="button"
+                  onClick={() => setAttendanceDateFilter('')}
+                  className="px-4 py-3 rounded-2xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
             {selectedEmp !== 'all' && (
               <button onClick={() => downloadIndividualReport(selectedEmp)} className="bg-emerald-50 text-emerald-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 hover:bg-emerald-100 transition-all flex items-center gap-2 w-full sm:w-auto justify-center">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>

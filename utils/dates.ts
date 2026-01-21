@@ -84,3 +84,37 @@ export const getLocalTimeMinutes = (date: Date, timeZone = 'Asia/Karachi'): numb
   const { hour, minute } = getLocalDateParts(date, timeZone);
   return hour * 60 + minute;
 };
+
+export const formatTimeInZone = (value: string | Date, timeZone = 'Asia/Karachi'): string => {
+  const date = typeof value === 'string' ? new Date(value) : value;
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+};
+
+export const buildZonedISOString = (dateStr: string, timeStr: string, timeZone = 'Asia/Karachi'): string => {
+  const safeDate = dateStr;
+  const safeTime = timeStr.length === 5 ? `${timeStr}:00` : timeStr;
+  const offset = timeZone === 'Asia/Karachi' ? '+05:00' : 'Z';
+  return `${safeDate}T${safeTime}${offset}`;
+};
+
+export const getZonedNowISOString = (timeZone = 'Asia/Karachi'): string => {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(now);
+  const map = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  const dateStr = `${map.year}-${map.month}-${map.day}`;
+  const timeStr = `${map.hour}:${map.minute}:${map.second}`;
+  return buildZonedISOString(dateStr, timeStr, timeZone);
+};

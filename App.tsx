@@ -24,7 +24,7 @@ import {
   updateCredentialsByEmployeeId
 } from './utils/storage';
 import { isSupabaseConfigured } from './utils/supabase';
-import { getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes } from './utils/dates';
+import { getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes, getZonedNowISOString } from './utils/dates';
 import Layout from './components/Layout';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeeDashboard from './components/EmployeeDashboard';
@@ -367,7 +367,7 @@ const App: React.FC = () => {
       userId: user.id,
       userName: user.name,
       date: shiftDate,
-      checkIn: now.toISOString(),
+      checkIn: getZonedNowISOString(),
       status: calculateStatus(now)
     };
     const updated = [...records, record];
@@ -380,12 +380,13 @@ const App: React.FC = () => {
     const activeRecord = [...records].reverse().find(r => r.userId === user.id && !r.checkOut);
     if (!activeRecord) return;
     const now = new Date();
+    const checkOutIso = getZonedNowISOString();
     const checkInTime = new Date(activeRecord.checkIn);
-    const diff = (now.getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
-    const overtimeHours = computeOvertimeHours(activeRecord.checkIn, now.toISOString());
+    const diff = (new Date(checkOutIso).getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
+    const overtimeHours = computeOvertimeHours(activeRecord.checkIn, checkOutIso);
     const updated = records.map(r =>
       r.id === activeRecord.id
-        ? { ...r, checkOut: now.toISOString(), totalHours: diff, overtimeHours: overtimeHours > 0 ? overtimeHours : undefined }
+        ? { ...r, checkOut: checkOutIso, totalHours: diff, overtimeHours: overtimeHours > 0 ? overtimeHours : undefined }
         : r
     );
     setRecords(updated);

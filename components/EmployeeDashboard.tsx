@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist, Role } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
-import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes } from '../utils/dates';
+import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, formatTimeInZone } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
 import { supabase, isSupabaseConfigured } from '../utils/supabase';
 
@@ -530,13 +530,13 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                         <td className="py-6 font-black text-slate-900">{r.date}</td>
                         <td className="py-6">
                           <div className="flex flex-col">
-                            <span className="text-xs font-black">{new Date(r.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
                             <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
                           </div>
                         </td>
                         <td className="py-6">
                           <div className="flex flex-col">
-                            <span className="text-xs font-black">{r.checkOut ? new Date(r.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}</span>
+                            <span className="text-xs font-black">{r.checkOut ? formatTimeInZone(r.checkOut) : 'Active'}</span>
                             <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>{getCheckoutStatus(r)}</span>
                           </div>
                         </td>

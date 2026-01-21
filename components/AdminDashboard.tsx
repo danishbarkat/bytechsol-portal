@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AttendanceRecord, LeaveRequest, Role, User, ESSProfile, UserChecklist } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
-import { addDaysToDateString, getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes } from '../utils/dates';
+import { addDaysToDateString, getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, buildZonedISOString, formatTimeInZone } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
 import logoUrl from '../asset/public/logo.svg';
 
@@ -746,12 +746,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleEditRecordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingRecord) {
-      const updatedCheckIn = new Date(`${editDate}T${editInTime}:00`).toISOString();
+      const updatedCheckIn = buildZonedISOString(editDate, editInTime);
       const resolvedOutDate = editOutTime && editOutTime < editInTime
         ? addDaysToDateString(editDate, 1)
         : editDate;
       const updatedCheckOut = editOutTime
-        ? new Date(`${resolvedOutDate}T${editOutTime}:00`).toISOString()
+        ? buildZonedISOString(resolvedOutDate, editOutTime)
         : undefined;
       let totalHours = undefined;
       if (updatedCheckOut) {
@@ -1009,13 +1009,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <td className="px-4 md:px-6 2xl:px-8 py-6 text-xs font-bold text-slate-500">{r.date}</td>
                     <td className="px-4 md:px-6 2xl:px-8 py-6">
                       <div className="flex flex-col">
-                        <span className="text-xs font-black">{new Date(r.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
                         <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
                       </div>
                     </td>
                     <td className="px-4 md:px-6 2xl:px-8 py-6">
                       <div className="flex flex-col">
-                        <span className="text-xs font-black">{r.checkOut ? new Date(r.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}</span>
+                        <span className="text-xs font-black">{r.checkOut ? formatTimeInZone(r.checkOut) : 'Active'}</span>
                         <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'Overtime' ? 'border-emerald-100 text-emerald-600 bg-emerald-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-400 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
                       </div>
                     </td>

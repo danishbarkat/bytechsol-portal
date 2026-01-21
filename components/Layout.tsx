@@ -46,7 +46,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
   }, [unreadCount]);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col overflow-x-hidden">
       <nav className="bg-white/70 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 py-4 md:flex-row md:items-center md:justify-between md:h-20 md:py-0">
@@ -75,7 +75,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                   )}
                 </button>
                 {showNotifications && (
-                  <div className="absolute right-0 mt-3 w-80 sm:w-96 bg-white border border-slate-200 shadow-xl rounded-2xl overflow-hidden z-50">
+                  <div className="absolute right-2 mt-3 w-[92vw] sm:w-96 max-w-[calc(100vw-1rem)] bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden z-50">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Notifications</p>
                       {unreadCount > 0 && (
@@ -93,7 +93,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                         No notifications
                       </div>
                     ) : (
-                      <div className="max-h-[360px] overflow-y-auto">
+                      <div className="max-h-[60vh] overflow-y-auto">
                         {sortedNotifications.map(notification => (
                           <div key={notification.id} className={`px-4 py-4 border-b border-slate-100 ${notification.read ? 'bg-white' : 'bg-blue-50/40'}`}>
                             <div className="flex items-start justify-between gap-2">

@@ -116,16 +116,34 @@ const playNotificationSound = () => {
     const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContext) return;
     const ctx = new AudioContext();
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.value = 880;
-    gain.gain.value = 0.08;
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-    oscillator.start();
-    oscillator.stop(ctx.currentTime + 0.2);
-    oscillator.onended = () => ctx.close();
+    ctx.resume?.();
+    const now = ctx.currentTime;
+    const tones = [
+      { freq: 740, dur: 0.12 },
+      { freq: 980, dur: 0.12 },
+      { freq: 740, dur: 0.16 }
+    ];
+    let cursor = now;
+    tones.forEach(({ freq, dur }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, cursor);
+      gain.gain.setValueAtTime(0.0001, cursor);
+      gain.gain.exponentialRampToValueAtTime(0.18, cursor + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, cursor + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(cursor);
+      osc.stop(cursor + dur);
+      cursor += dur + 0.05;
+    });
+    ctx.onstatechange = () => {
+      if (ctx.state === 'closed') return;
+      if (ctx.currentTime > now + 0.6) {
+        ctx.close();
+      }
+    };
   } catch {
     // Ignore audio failures.
   }

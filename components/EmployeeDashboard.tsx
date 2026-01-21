@@ -101,6 +101,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [profileImage, setProfileImage] = useState<string | null>(user.profileImage || null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [profileUploading, setProfileUploading] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -181,12 +182,14 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   };
 
   const uploadProfileImage = async (file: File) => {
+    setProfileUploading(true);
     if (!isSupabaseConfigured || !supabase) {
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
           setProfileImage(reader.result);
           setProfileError(null);
+          setProfileUploading(false);
         }
       };
       reader.readAsDataURL(file);
@@ -199,6 +202,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       .upload(fileName, file, { upsert: true, contentType: file.type });
     if (error) {
       setProfileError('Upload failed. Check storage permissions.');
+      setProfileUploading(false);
       return;
     }
     const { data } = supabase.storage
@@ -206,10 +210,12 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       .getPublicUrl(fileName);
     if (!data?.publicUrl) {
       setProfileError('Unable to read uploaded image URL.');
+      setProfileUploading(false);
       return;
     }
     setProfileImage(data.publicUrl);
     setProfileError(null);
+    setProfileUploading(false);
   };
 
   const handleProfileImageChange = (file?: File | null) => {
@@ -940,8 +946,12 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
               {profileSaved && (
                 <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Profile updated</p>
               )}
-              <button onClick={handleProfileSave} className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl">
-                Save Profile
+              <button
+                onClick={handleProfileSave}
+                disabled={profileUploading}
+                className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl disabled:opacity-60"
+              >
+                {profileUploading ? 'Uploading Photo...' : 'Save Profile'}
               </button>
             </div>
 

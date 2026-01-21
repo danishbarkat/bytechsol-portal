@@ -63,6 +63,8 @@ create table if not exists wfh_requests (
   id text primary key,
   user_id text not null,
   user_name text not null,
+  start_date text not null,
+  end_date text not null,
   reason text not null,
   status text not null,
   submitted_at text not null

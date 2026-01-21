@@ -482,6 +482,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [leaveStartDate, setLeaveStartDate] = useState(() => getLocalDateString(new Date()));
   const [leaveEndDate, setLeaveEndDate] = useState(() => getLocalDateString(new Date()));
   const [attendanceDateFilter, setAttendanceDateFilter] = useState('');
+  const attendanceDateRef = useRef<HTMLInputElement | null>(null);
   const [docForm, setDocForm] = useState<Record<string, string>>(() => {
     const now = new Date();
     const today = getLocalDateString(now);
@@ -550,6 +551,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const filteredAttendance = attendanceDateFilter
     ? filteredAttendanceBase.filter(r => r.date === attendanceDateFilter)
     : filteredAttendanceBase;
+  const sortedAttendance = [...filteredAttendance].sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return b.checkIn.localeCompare(a.checkIn);
+  });
   const canApprove = user.role === Role.CEO || user.role === Role.SUPERADMIN;
   const isExecutive = user.role === Role.CEO || user.role === Role.SUPERADMIN;
   const roleOptions = isSuperadmin
@@ -992,11 +997,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="date"
                     value={attendanceDateFilter}
                     onChange={e => setAttendanceDateFilter(e.target.value)}
-                    className="bg-white border-2 border-slate-100 rounded-2xl px-4 py-3 pr-10 text-[10px] font-black uppercase outline-none focus:border-blue-500 shadow-sm w-full sm:w-auto text-slate-700"
+                    className="bg-white border-2 border-slate-100 rounded-2xl px-4 py-3 pr-10 text-[10px] font-black uppercase outline-none focus:border-blue-500 shadow-sm w-full sm:w-auto text-slate-700 cursor-pointer"
+                    ref={attendanceDateRef}
+                    onClick={() => {
+                      attendanceDateRef.current?.showPicker?.();
+                      attendanceDateRef.current?.focus();
+                    }}
                   />
-                  <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-300">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      attendanceDateRef.current?.showPicker?.();
+                      attendanceDateRef.current?.focus();
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all"
+                  >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                  </div>
+                  </button>
                 </div>
               </div>
               {attendanceDateFilter && (
@@ -1030,7 +1047,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredAttendance.map(r => {
+                {sortedAttendance.map(r => {
                   const recordUser = users.find(u => u.id === r.userId);
                   const roleLabel = recordUser?.position || recordUser?.role || 'Employee';
                   return (
@@ -1136,7 +1153,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <span className="font-black text-lg text-slate-900">{req.userName}</span>
                         <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600' : req.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{req.status}</span>
                       </div>
-                      <p className="text-xs font-bold text-slate-500">Requested on {new Date(req.submittedAt).toLocaleDateString()}</p>
+                      <p className="text-xs font-bold text-slate-500">Dates: {req.startDate} → {req.endDate}</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-300">Requested on {new Date(req.submittedAt).toLocaleDateString()}</p>
                       <p className="text-sm font-medium text-slate-700 italic">"{req.reason}"</p>
                     </div>
                     {req.status === 'Pending' && (

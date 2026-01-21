@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist, Role, WorkFromHomeRequest } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
 import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, formatTimeInZone } from '../utils/dates';
@@ -62,7 +62,7 @@ interface EmployeeDashboardProps {
   onCheckOut: () => void;
   isWifiConnected: boolean;
   onSubmitLeave: (start: string, end: string, reason: string) => void;
-  onSubmitWfhRequest: (reason: string) => void;
+  onSubmitWfhRequest: (reason: string, startDate: string, endDate: string) => void;
   onUpdateESS: (profile: ESSProfile) => void;
   onUpdateChecklist: (checklist: UserChecklist) => void;
   onUpdateUser: (user: User) => void;
@@ -91,6 +91,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     `Leave Application\n\nReason:\n\nRegards,\n${employee.name}\nID: ${employee.employeeId}`;
   const [leaveApplication, setLeaveApplication] = useState(buildLeaveTemplate(user));
   const [wfhReason, setWfhReason] = useState('');
+  const [wfhStartDate, setWfhStartDate] = useState(() => getLocalDateString(new Date()));
+  const [wfhEndDate, setWfhEndDate] = useState(() => getLocalDateString(new Date()));
   const [currentTime, setCurrentTime] = useState(new Date());
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [profileName, setProfileName] = useState(user.name || '');
@@ -104,6 +106,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [attendanceDateFilter, setAttendanceDateFilter] = useState('');
+  const attendanceDateRef = useRef<HTMLInputElement | null>(null);
 
   const isSameMonth = (dateStr: string, target: Date) => {
     const date = new Date(dateStr);
@@ -278,14 +281,22 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const shiftLocked = hasShiftRecord && !activeRecord;
   const myLeaves = leaves.filter(l => l.userId === user.id).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
   const myWfhRequests = wfhRequests.filter(r => r.userId === user.id).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+  const todayStr = getLocalDateString(new Date());
+  const isWfhToday = myWfhRequests.some(req =>
+    req.status === 'Approved' && req.startDate <= todayStr && req.endDate >= todayStr
+  );
   const weeklyOT = calculateWeeklyOvertime(user.id, records);
   const workMode = user.workMode || 'Onsite';
-  const canTrack = workMode === 'Remote' || isWifiConnected;
+  const canTrack = workMode === 'Remote' || isWifiConnected || isWfhToday;
   const salaryHidden = Boolean(user.salaryHidden);
   const employeeRecords = records.filter(r => r.userId === user.id);
   const filteredEmployeeRecords = attendanceDateFilter
     ? employeeRecords.filter(r => r.date === attendanceDateFilter)
     : employeeRecords;
+  const sortedEmployeeRecords = [...filteredEmployeeRecords].sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return b.checkIn.localeCompare(a.checkIn);
+  });
   const activeSeconds = activeRecord && !activeRecord.checkOut
     ? (currentTime.getTime() - new Date(activeRecord.checkIn).getTime()) / 1000
     : 0;
@@ -536,10 +547,22 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                         value={attendanceDateFilter}
                         onChange={e => setAttendanceDateFilter(e.target.value)}
                         className="px-4 py-2 pr-10 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none text-[10px] font-black text-slate-700"
+                        ref={attendanceDateRef}
+                        onClick={() => {
+                          attendanceDateRef.current?.showPicker?.();
+                          attendanceDateRef.current?.focus();
+                        }}
                       />
-                      <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-300">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          attendanceDateRef.current?.showPicker?.();
+                          attendanceDateRef.current?.focus();
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all"
+                      >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                      </div>
+                      </button>
                     </div>
                   </div>
                   {attendanceDateFilter && (
@@ -564,7 +587,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filteredEmployeeRecords.sort((a, b) => b.date.localeCompare(a.date)).map(r => (
+                    {sortedEmployeeRecords.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
                         <td className="py-6 font-black text-slate-900">{r.date}</td>
                         <td className="py-6">
@@ -625,6 +648,28 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                 <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">You are already remote.</p>
               ) : (
                 <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label htmlFor="wfh-start" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Start Date</label>
+                      <input
+                        id="wfh-start"
+                        type="date"
+                        value={wfhStartDate}
+                        onChange={e => setWfhStartDate(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[10px] font-black outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="wfh-end" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">End Date</label>
+                      <input
+                        id="wfh-end"
+                        type="date"
+                        value={wfhEndDate}
+                        onChange={e => setWfhEndDate(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[10px] font-black outline-none"
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-1">
                     <label htmlFor="wfh-reason" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Reason</label>
                     <textarea
@@ -639,8 +684,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     type="button"
                     onClick={() => {
                       const trimmed = wfhReason.trim();
-                      if (!trimmed) return;
-                      onSubmitWfhRequest(trimmed);
+                      if (!trimmed || !wfhStartDate || !wfhEndDate) return;
+                      onSubmitWfhRequest(trimmed, wfhStartDate, wfhEndDate);
                       setWfhReason('');
                     }}
                     className="w-full bg-slate-900 text-white py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all"
@@ -691,10 +736,11 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                 myWfhRequests.map(req => (
                   <div key={req.id} className="glass-card rounded-[2rem] p-6 mb-3 border-l-8 border-slate-300">
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{new Date(req.submittedAt).toLocaleDateString()}</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{req.startDate} → {req.endDate}</span>
                       <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600' : req.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{req.status}</span>
                     </div>
                     <p className="text-xs font-bold text-slate-700">"{req.reason}"</p>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-300 mt-2">Requested on {new Date(req.submittedAt).toLocaleDateString()}</p>
                   </div>
                 ))
               )}

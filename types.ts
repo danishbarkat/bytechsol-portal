@@ -62,6 +62,8 @@ export interface WorkFromHomeRequest {
   id: string;
   userId: string;
   userName: string;
+  startDate: string;
+  endDate: string;
   reason: string;
   status: WfhStatus;
   submittedAt: string;

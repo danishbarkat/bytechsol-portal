@@ -285,13 +285,27 @@ const App: React.FC = () => {
     };
   }, []);
 
+  const isDateInRange = (date: string, start: string, end: string) => {
+    if (!date || !start || !end) return false;
+    return date >= start && date <= end;
+  };
+
+  const isWfhApprovedForUser = (targetUserId: string, dateStr: string) =>
+    wfhRequests.some(req =>
+      req.userId === targetUserId &&
+      req.status === 'Approved' &&
+      isDateInRange(dateStr, req.startDate, req.endDate)
+    );
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const normalizedId = normalizeEmployeeId(employeeIdInput);
     const credential = password.trim();
     const isPin = /^\d{4}$/.test(credential);
     const matchedUser = users.find(u => normalizeEmployeeId(u.employeeId || '') === normalizedId);
-    const isRemoteLoginAllowed = remoteLoginIds.includes(normalizedId) || matchedUser?.workMode === 'Remote';
+    const todayStr = getLocalDateString(new Date());
+    const isWfhToday = matchedUser ? isWfhApprovedForUser(matchedUser.id, todayStr) : false;
+    const isRemoteLoginAllowed = remoteLoginIds.includes(normalizedId) || matchedUser?.workMode === 'Remote' || isWfhToday;
     if (ipStatus === 'blocked' && !isRemoteLoginAllowed) {
       setError('Office Wi-Fi required for this account.');
       return;
@@ -410,12 +424,16 @@ const App: React.FC = () => {
     void saveLeaves(updated);
   };
 
-  const handleSubmitWfhRequest = (reason: string) => {
+  const handleSubmitWfhRequest = (reason: string, startDate: string, endDate: string) => {
     if (!user) return;
+    const safeStart = startDate <= endDate ? startDate : endDate;
+    const safeEnd = startDate <= endDate ? endDate : startDate;
     const newRequest: WorkFromHomeRequest = {
       id: Math.random().toString(36).substr(2, 9),
       userId: user.id,
       userName: user.name,
+      startDate: safeStart,
+      endDate: safeEnd,
       reason,
       status: 'Pending',
       submittedAt: new Date().toISOString()
@@ -427,19 +445,12 @@ const App: React.FC = () => {
 
   const handleWfhAction = (requestId: string, action: 'Approved' | 'Rejected') => {
     if (user?.role !== Role.CEO && user?.role !== Role.SUPERADMIN) return;
-    let targetUser: User | null = null;
     const updated = wfhRequests.map(req => {
       if (req.id !== requestId) return req;
-      if (action === 'Approved') {
-        targetUser = users.find(u => u.id === req.userId) || null;
-      }
       return { ...req, status: action };
     });
     setWfhRequests(updated);
     void saveWfhRequests(updated);
-    if (action === 'Approved' && targetUser) {
-      handleUpdateUser({ ...targetUser, workMode: 'Remote' });
-    }
   };
 
   const handleSubmitLeave = (startDate: string, endDate: string, reason: string) => {
@@ -581,8 +592,11 @@ const App: React.FC = () => {
   }
 
   if (ipStatus === 'blocked' && user) {
+    const todayStr = getLocalDateString(new Date());
+    const isWfhToday = isWfhApprovedForUser(user.id, todayStr);
     const isRemoteSessionAllowed = remoteLoginIds.includes(normalizeEmployeeId(user.employeeId || ''))
-      || user.workMode === 'Remote';
+      || user.workMode === 'Remote'
+      || isWfhToday;
     if (!isRemoteSessionAllowed) {
       return (
         <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">

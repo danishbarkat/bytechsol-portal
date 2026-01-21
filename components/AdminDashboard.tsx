@@ -35,6 +35,11 @@ const generateTempPassword = () => {
   return value;
 };
 
+const generateTempPin = () => {
+  const pin = Math.floor(1000 + Math.random() * 9000);
+  return String(pin);
+};
+
 const normalizePin = (value?: string) => (value || '').replace(/\D/g, '').slice(0, 4);
 
 const splitName = (name?: string) => {
@@ -1964,17 +1969,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label htmlFor="user-pin" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">4 Digit PIN (Optional)</label>
-                  <input
-                    id="user-pin"
-                    name="pin"
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={4}
-                    value={userForm.pin || ''}
-                    onChange={e => setUserForm({ ...userForm, pin: normalizePin(e.target.value) })}
-                    className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"
-                  />
+                  <label htmlFor="user-pin" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">4 Digit PIN (HR Only)</label>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <input
+                      id="user-pin"
+                      name="pin"
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={userForm.pin || ''}
+                      onChange={e => setUserForm({ ...userForm, pin: normalizePin(e.target.value) })}
+                      className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setUserForm(prev => ({ ...prev, pin: generateTempPin() }))}
+                      className="shrink-0 px-4 py-3 rounded-xl bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
+                    >
+                      Reset PIN
+                    </button>
+                  </div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Employees can log in with PIN instead of password.</p>
                 </div>
                 <div className="space-y-1"><label htmlFor="user-employee-id" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label><input id="user-employee-id" name="employeeId" required readOnly type="text" value={formatEmployeeId(userForm.firstName, userForm.lastName, employeeIdSeed)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent outline-none font-bold text-slate-800 text-slate-500" /></div>

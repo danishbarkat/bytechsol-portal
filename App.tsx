@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, AttendanceRecord, Role, CheckInStatus, LeaveRequest, ESSProfile, UserChecklist, WorkFromHomeRequest, AppNotification } from './types';
 import { APP_CONFIG, MOCK_USERS } from './constants';
 import logoUrl from './asset/public/logo.svg';
@@ -141,7 +141,9 @@ const getMissingFields = (target: User, profile?: ESSProfile) => {
   if (!target.phone?.trim()) missing.push('Phone Number');
   if (!target.email?.trim()) missing.push('Email Address');
   if (!target.password?.trim()) missing.push('Security Key (Password)');
-  if (!target.pin?.trim() || target.pin.trim().length !== 4) missing.push('4 Digit PIN');
+  if (target.role !== Role.HR && (!target.pin?.trim() || target.pin.trim().length !== 4)) {
+    missing.push('4 Digit PIN');
+  }
   if (!target.employeeId?.trim()) missing.push('Employee ID');
   if (!hasNumber(target.basicSalary)) missing.push('Basic Salary');
   if (!hasNumber(target.allowances)) missing.push('Allowances');
@@ -189,9 +191,6 @@ const App: React.FC = () => {
       };
       return updated;
     });
-    if (nextNotification.playSound && user?.id === nextNotification.userId) {
-      playNotificationSound();
-    }
   }, [user?.id]);
 
   const markNotificationRead = useCallback((notificationId: string) => {
@@ -202,6 +201,16 @@ const App: React.FC = () => {
     if (!user) return;
     setNotifications(prev => prev.map(n => (n.userId === user.id ? { ...n, read: true } : n)));
   }, [user]);
+
+  const prevUnreadRef = useRef(0);
+  useEffect(() => {
+    if (!user) return;
+    const unreadCount = notifications.filter(n => n.userId === user.id && !n.read).length;
+    if (unreadCount > prevUnreadRef.current) {
+      playNotificationSound();
+    }
+    prevUnreadRef.current = unreadCount;
+  }, [notifications, user]);
 
   useEffect(() => {
     let active = true;
@@ -589,6 +598,18 @@ const App: React.FC = () => {
     const updated = [...wfhRequests, newRequest];
     setWfhRequests(updated);
     void saveWfhRequests(updated);
+    const ceoUsers = users.filter(u => u.role === Role.CEO);
+    ceoUsers.forEach(ceo => {
+      addOrUpdateNotification({
+        id: `wfh-request:${newRequest.id}:${ceo.id}`,
+        userId: ceo.id,
+        title: 'WFH request pending',
+        message: `${user.name} requested WFH ${safeStart} to ${safeEnd}.`,
+        createdAt: new Date().toISOString(),
+        read: false,
+        playSound: true
+      }, true);
+    });
   };
 
   const handleWfhAction = (requestId: string, action: 'Approved' | 'Rejected') => {
@@ -599,6 +620,18 @@ const App: React.FC = () => {
     });
     setWfhRequests(updated);
     void saveWfhRequests(updated);
+    const targetRequest = wfhRequests.find(req => req.id === requestId);
+    if (targetRequest) {
+      addOrUpdateNotification({
+        id: `wfh-status:${requestId}`,
+        userId: targetRequest.userId,
+        title: `WFH ${action}`,
+        message: `Your WFH ${targetRequest.startDate} to ${targetRequest.endDate} was ${action.toLowerCase()}.`,
+        createdAt: new Date().toISOString(),
+        read: false,
+        playSound: true
+      }, true);
+    }
   };
 
   const handleSubmitLeave = (startDate: string, endDate: string, reason: string) => {
@@ -625,6 +658,18 @@ const App: React.FC = () => {
     const updated = [...leaves, newLeave];
     setLeaves(updated);
     void saveLeaves(updated);
+    const ceoUsers = users.filter(u => u.role === Role.CEO);
+    ceoUsers.forEach(ceo => {
+      addOrUpdateNotification({
+        id: `leave-request:${newLeave.id}:${ceo.id}`,
+        userId: ceo.id,
+        title: 'Leave request pending',
+        message: `${user.name} requested leave ${startDate} to ${endDate}.`,
+        createdAt: new Date().toISOString(),
+        read: false,
+        playSound: true
+      }, true);
+    });
   };
 
   const handleCancelLeave = (leaveId: string) => {

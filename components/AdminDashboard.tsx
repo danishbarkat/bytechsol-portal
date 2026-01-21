@@ -730,7 +730,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const overtimeMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getOvertimeMinutesForRecord(record), 0);
     const overtimeHoursThisMonth = overtimeMinutesThisMonth / 60;
     const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / shiftHours : 0;
-    const overtimePay = overtimeHoursThisMonth * hourlyRate;
+    const overtimePay = targetUser.role === Role.HR ? 0 : overtimeHoursThisMonth * hourlyRate;
     const unpaidLeaveDays = leaves
       .filter(l => l.userId === targetUser.id && l.status === 'Approved' && l.isPaid === false)
       .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, now), 0);

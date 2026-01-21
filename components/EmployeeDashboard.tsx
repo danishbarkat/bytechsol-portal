@@ -215,6 +215,16 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     }
     setProfileImage(data.publicUrl);
     setProfileError(null);
+    if (user.employeeId) {
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ profile_image: data.publicUrl })
+        .eq('employee_id', user.employeeId);
+      if (updateError) {
+        setProfileError('Image saved, but profile update failed.');
+      }
+    }
+    onUpdateUser({ ...user, profileImage: data.publicUrl });
     setProfileUploading(false);
   };
 

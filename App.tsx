@@ -51,6 +51,19 @@ const extractEmployeeSuffix = (value: string): string | null => {
   return match ? match[1] : null;
 };
 
+const computeTotalHours = (checkInIso: string, checkOutIso: string): number => {
+  const checkInTime = new Date(checkInIso);
+  const checkOutTime = new Date(checkOutIso);
+  const diffHours = (checkOutTime.getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
+  if (diffHours >= 0 && diffHours <= 18) return diffHours;
+  const checkInMinutes = getLocalTimeMinutes(checkInTime);
+  const checkOutMinutes = getLocalTimeMinutes(checkOutTime);
+  const adjustedCheckOut = checkOutMinutes < checkInMinutes
+    ? checkOutMinutes + 24 * 60
+    : checkOutMinutes;
+  return Math.max(0, (adjustedCheckOut - checkInMinutes) / 60);
+};
+
 const computeOvertimeHours = (checkInIso: string, checkOutIso: string): number => {
   const checkInTime = new Date(checkInIso);
   const checkOutTime = new Date(checkOutIso);
@@ -79,12 +92,16 @@ const normalizeOvertimeRecords = (list: AttendanceRecord[]) => {
   let changed = false;
   const normalized = list.map(record => {
     if (!record.checkIn || !record.checkOut) return record;
-    const computed = computeOvertimeHours(record.checkIn, record.checkOut);
-    const next = computed > 0 ? computed : undefined;
-    const current = Number.isFinite(record.overtimeHours) ? record.overtimeHours : 0;
-    if (Math.abs((next ?? 0) - current) > 0.01) {
+    const computedOvertime = computeOvertimeHours(record.checkIn, record.checkOut);
+    const nextOvertime = computedOvertime > 0 ? computedOvertime : undefined;
+    const currentOvertime = Number.isFinite(record.overtimeHours) ? record.overtimeHours : 0;
+    const computedTotal = computeTotalHours(record.checkIn, record.checkOut);
+    const currentTotal = Number.isFinite(record.totalHours) ? record.totalHours : 0;
+    const needsOvertime = Math.abs((nextOvertime ?? 0) - currentOvertime) > 0.01;
+    const needsTotal = Math.abs(computedTotal - currentTotal) > 0.01;
+    if (needsOvertime || needsTotal) {
       changed = true;
-      return { ...record, overtimeHours: next };
+      return { ...record, overtimeHours: nextOvertime, totalHours: computedTotal };
     }
     return record;
   });

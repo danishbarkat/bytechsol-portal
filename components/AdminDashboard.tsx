@@ -552,6 +552,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     'Mobile Developer',
     'Software Engineer'
   ];
+  const jobPositionOptions = [
+    'AI/ML Engineer',
+    'Data Scientist',
+    'Data Analyst',
+    'Business Analyst',
+    'Project Manager',
+    'Web Developer',
+    'Frontend Developer',
+    'Backend Developer',
+    'UI/UX Designer',
+    'Graphics Designer',
+    'Sales Executive',
+    'Business Development',
+    'App Developer',
+    'Mobile Developer',
+    'Software Engineer',
+    'Odoo Developer'
+  ];
   const isOtherDocRole = !documentRoleOptions.includes(docForm.role);
   const gradeOptions = [
     'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10',
@@ -1949,7 +1967,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="space-y-1"><label htmlFor="user-employee-id" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label><input id="user-employee-id" name="employeeId" required readOnly type="text" value={formatEmployeeId(userForm.firstName, userForm.lastName, employeeIdSeed)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent outline-none font-bold text-slate-800 text-slate-500" /></div>
                 <div className="space-y-1"><label htmlFor="user-basic-salary" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Basic Salary (Monthly)</label><input id="user-basic-salary" name="basicSalary" type="number" value={userForm.basicSalary || ''} onChange={e => setUserForm({ ...userForm, basicSalary: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
                 <div className="space-y-1"><label htmlFor="user-allowances" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Allowances (Monthly)</label><input id="user-allowances" name="allowances" type="number" value={userForm.allowances || ''} onChange={e => setUserForm({ ...userForm, allowances: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="user-position" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Job Position (e.g. Odoo Developer)</label><input id="user-position" name="position" type="text" value={userForm.position || ''} onChange={e => setUserForm({ ...userForm, position: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1">
+                  <label htmlFor="user-position" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Job Position</label>
+                  <select
+                    id="user-position"
+                    name="position"
+                    required
+                    value={userForm.position || ''}
+                    onChange={e => setUserForm({ ...userForm, position: e.target.value })}
+                    className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"
+                  >
+                    <option value="" disabled>Select role</option>
+                    {jobPositionOptions.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="space-y-1"><label htmlFor="user-role" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Corporate Role</label><select id="user-role" name="role" required value={userForm.role || Role.EMPLOYEE} onChange={e => setUserForm({ ...userForm, role: e.target.value as Role })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800">{roleOptions.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                 <div className="space-y-1"><label htmlFor="user-work-mode" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Work Mode</label><select id="user-work-mode" name="workMode" required value={userForm.workMode || 'Onsite'} onChange={e => setUserForm({ ...userForm, workMode: e.target.value as User['workMode'] })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"><option value="Onsite">Onsite</option><option value="Remote">Remote</option></select></div>
                 <div className="space-y-1"><label htmlFor="user-grade" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee Grade</label><select id="user-grade" name="grade" value={userForm.grade || ''} onChange={e => setUserForm({ ...userForm, grade: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"><option value="">Select Grade</option>{gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}</select></div>

@@ -75,7 +75,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                   )}
                 </button>
                 {showNotifications && (
-                  <div className="absolute right-2 mt-3 w-[92vw] sm:w-96 max-w-[calc(100vw-1rem)] bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden z-50">
+                  <div className="fixed left-4 right-4 sm:left-auto sm:right-4 top-16 sm:top-20 w-auto sm:w-96 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden z-50">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Notifications</p>
                       {unreadCount > 0 && (
@@ -99,7 +99,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <p className="text-xs font-black text-slate-900">{notification.title}</p>
-                                <p className="text-[10px] font-bold text-slate-500 mt-1">{notification.message}</p>
+                              <p className="text-[10px] font-bold text-slate-500 mt-1 break-words">{notification.message}</p>
                                 <p className="text-[9px] font-black uppercase tracking-widest text-slate-300 mt-2">
                                   {new Date(notification.createdAt).toLocaleString()}
                                 </p>

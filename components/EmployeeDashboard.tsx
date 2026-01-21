@@ -613,7 +613,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                   <tbody className="divide-y divide-slate-50">
                     {sortedEmployeeRecords.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
-                        <td className="py-6 font-black text-slate-900">{r.date}</td>
+                        <td className="py-6 font-black text-slate-900">{resolveRecordDate(r)}</td>
                         <td className="py-6">
                           <div className="flex flex-col">
                         <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
@@ -696,7 +696,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     <tbody className="divide-y divide-slate-50">
                       {sortedMonthRecords.map(r => (
                         <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
-                          <td className="py-6 font-black text-slate-900">{r.date}</td>
+                          <td className="py-6 font-black text-slate-900">{resolveRecordDate(r)}</td>
                           <td className="py-6">
                             <div className="flex flex-col">
                               <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>

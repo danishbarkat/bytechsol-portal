@@ -1087,7 +1087,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mt-1">{roleLabel}</span>
                       </div>
                     </td>
-                    <td className="px-4 md:px-6 2xl:px-8 py-6 text-xs font-bold text-slate-500">{r.date}</td>
+                    <td className="px-4 md:px-6 2xl:px-8 py-6 text-xs font-bold text-slate-500">{resolveRecordDate(r)}</td>
                     <td className="px-4 md:px-6 2xl:px-8 py-6">
                       <div className="flex flex-col">
                         <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
@@ -1176,7 +1176,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <tbody className="divide-y divide-slate-50">
                     {sortedMonthlyAttendance.map(r => (
                       <tr key={r.id} className="hover:bg-blue-50/20 transition-all">
-                        <td className="px-4 md:px-6 2xl:px-8 py-6 text-xs font-bold text-slate-500">{r.date}</td>
+                        <td className="px-4 md:px-6 2xl:px-8 py-6 text-xs font-bold text-slate-500">{resolveRecordDate(r)}</td>
                         <td className="px-4 md:px-6 2xl:px-8 py-6">
                           <div className="flex flex-col">
                             <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>

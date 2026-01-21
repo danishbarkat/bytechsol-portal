@@ -825,33 +825,7 @@ const App: React.FC = () => {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50 relative overflow-hidden">
-        <style>{`
-          @keyframes floatWatermark {
-            0% { transform: translateY(0px) rotate(-8deg); }
-            50% { transform: translateY(-18px) rotate(-6deg); }
-            100% { transform: translateY(0px) rotate(-8deg); }
-          }
-          @keyframes floatWatermarkSlow {
-            0% { transform: translateY(0px) rotate(6deg); }
-            50% { transform: translateY(22px) rotate(4deg); }
-            100% { transform: translateY(0px) rotate(6deg); }
-          }
-        `}</style>
-        <div className="absolute inset-0 pointer-events-none">
-          <div
-            className="absolute -top-24 right-[-40px] w-[380px] h-[380px] opacity-10 blur-[1px]"
-            style={{ animation: 'floatWatermark 12s ease-in-out infinite' }}
-          >
-            <img src={logoUrl} alt="" className="w-full h-full object-contain" />
-          </div>
-          <div
-            className="absolute -bottom-28 left-[-60px] w-[320px] h-[320px] opacity-5"
-            style={{ animation: 'floatWatermarkSlow 16s ease-in-out infinite' }}
-          >
-            <img src={logoUrl} alt="" className="w-full h-full object-contain" />
-          </div>
-        </div>
+      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
         <div className="max-w-lg w-full">
           <div className="bg-white rounded-[3rem] shadow-2xl p-12 border border-slate-100 space-y-10">
             <div className="text-center">

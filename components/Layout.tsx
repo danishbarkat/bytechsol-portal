@@ -78,15 +78,27 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                   <div className="fixed left-4 right-4 sm:left-auto sm:right-4 top-16 sm:top-20 w-auto sm:w-96 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden z-50">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Notifications</p>
-                      {unreadCount > 0 && (
+                      <div className="flex items-center gap-3">
+                        {unreadCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={onMarkAllNotificationsRead}
+                            className="text-[9px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-700"
+                          >
+                            Mark all read
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={onMarkAllNotificationsRead}
-                          className="text-[9px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-700"
+                          onClick={() => setShowNotifications(false)}
+                          className="text-slate-400 hover:text-slate-600"
+                          aria-label="Close notifications"
                         >
-                          Mark all read
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                         </button>
-                      )}
+                      </div>
                     </div>
                     {sortedNotifications.length === 0 ? (
                       <div className="p-6 text-center text-[10px] font-black uppercase tracking-widest text-slate-300">

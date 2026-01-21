@@ -112,6 +112,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const attendanceMonthRef = useRef<HTMLInputElement | null>(null);
+  const resolveRecordDate = (record: AttendanceRecord) =>
+    record.date || getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
 
   const isSameMonth = (dateStr: string, target: Date) => {
     const date = new Date(dateStr);
@@ -296,17 +298,21 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const salaryHidden = Boolean(user.salaryHidden);
   const employeeRecords = records.filter(r => r.userId === user.id);
   const filteredEmployeeRecords = attendanceDateFilter
-    ? employeeRecords.filter(r => r.date === attendanceDateFilter)
+    ? employeeRecords.filter(r => resolveRecordDate(r) === attendanceDateFilter)
     : employeeRecords;
   const sortedEmployeeRecords = [...filteredEmployeeRecords].sort((a, b) => {
-    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    const aDate = resolveRecordDate(a);
+    const bDate = resolveRecordDate(b);
+    if (aDate !== bDate) return bDate.localeCompare(aDate);
     return b.checkIn.localeCompare(a.checkIn);
   });
   const defaultMonthFilter = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}`;
   const effectiveMonthFilter = attendanceMonthFilter || defaultMonthFilter;
-  const attendanceMonthRecords = employeeRecords.filter(r => r.date.startsWith(effectiveMonthFilter));
+  const attendanceMonthRecords = employeeRecords.filter(r => resolveRecordDate(r).startsWith(effectiveMonthFilter));
   const sortedMonthRecords = [...attendanceMonthRecords].sort((a, b) => {
-    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    const aDate = resolveRecordDate(a);
+    const bDate = resolveRecordDate(b);
+    if (aDate !== bDate) return bDate.localeCompare(aDate);
     return b.checkIn.localeCompare(a.checkIn);
   });
   const monthSummaryLabel = new Date(`${effectiveMonthFilter}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -356,7 +362,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   };
 
   const monthLabel = currentTime.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const monthRecords = records.filter(r => r.userId === user.id && isSameMonth(r.date, currentTime));
+  const monthRecords = records.filter(r => r.userId === user.id && isSameMonth(resolveRecordDate(r), currentTime));
   const overtimeMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getOvertimeMinutesForRecord(record), 0);
   const overtimeHoursThisMonth = overtimeMinutesThisMonth / 60;
   const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / shiftHours : 0;

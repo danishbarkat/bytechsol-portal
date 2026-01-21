@@ -488,6 +488,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const attendanceMonthRef = useRef<HTMLInputElement | null>(null);
+  const resolveRecordDate = (record: AttendanceRecord) =>
+    record.date || getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
   const [docForm, setDocForm] = useState<Record<string, string>>(() => {
     const now = new Date();
     const today = getLocalDateString(now);
@@ -555,10 +557,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const visibleWfh = isSuperadmin ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));
   const filteredAttendanceBase = selectedEmp === 'all' ? visibleRecords : visibleRecords.filter(r => r.userId === selectedEmp);
   const filteredAttendance = attendanceDateFilter
-    ? filteredAttendanceBase.filter(r => r.date === attendanceDateFilter)
+    ? filteredAttendanceBase.filter(r => resolveRecordDate(r) === attendanceDateFilter)
     : filteredAttendanceBase;
   const sortedAttendance = [...filteredAttendance].sort((a, b) => {
-    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    const aDate = resolveRecordDate(a);
+    const bDate = resolveRecordDate(b);
+    if (aDate !== bDate) return bDate.localeCompare(aDate);
     return b.checkIn.localeCompare(a.checkIn);
   });
   const defaultMonthFilter = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
@@ -566,9 +570,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const monthlyAttendanceBase = selectedEmp === 'all'
     ? []
     : visibleRecords.filter(r => r.userId === selectedEmp);
-  const monthlyAttendance = monthlyAttendanceBase.filter(r => r.date.startsWith(effectiveMonthFilter));
+  const monthlyAttendance = monthlyAttendanceBase.filter(r => resolveRecordDate(r).startsWith(effectiveMonthFilter));
   const sortedMonthlyAttendance = [...monthlyAttendance].sort((a, b) => {
-    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    const aDate = resolveRecordDate(a);
+    const bDate = resolveRecordDate(b);
+    if (aDate !== bDate) return bDate.localeCompare(aDate);
     return b.checkIn.localeCompare(a.checkIn);
   });
   const monthSummaryLabel = new Date(`${effectiveMonthFilter}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });

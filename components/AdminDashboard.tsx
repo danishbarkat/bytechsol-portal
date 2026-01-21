@@ -1174,6 +1174,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <p className="text-sm font-black text-amber-600">{lateRemaining} left</p>
                 <p className="text-[9px] font-bold text-amber-400 uppercase tracking-widest">{lateCountThisMonth}/{lateAllowance} used</p>
               </div>
+              {user.role === Role.HR && (
+                <div className="px-4 py-3 rounded-2xl bg-emerald-50 border border-emerald-100">
+                  <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Monthly Salary</p>
+                  <p className="text-sm font-black text-emerald-700">
+                    {mySnapshot ? formatCurrency(mySnapshot.salaryAfterTax) : 'Set Salary'}
+                  </p>
+                  {mySnapshot && (
+                    <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest">
+                      After Tax
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <button

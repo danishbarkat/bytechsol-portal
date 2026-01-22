@@ -274,6 +274,7 @@ const App: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [recordsHydrated, setRecordsHydrated] = useState(false);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [essProfiles, setEssProfiles] = useState<ESSProfile[]>([]);
   const [checklists, setChecklists] = useState<UserChecklist[]>([]);
@@ -335,6 +336,7 @@ const App: React.FC = () => {
       if (!active) return;
       const { normalized, changed } = reconcileRecords(recordsData);
       setRecords(normalized);
+      setRecordsHydrated(true);
       if (changed) {
         void saveRecords(normalized);
       }
@@ -506,6 +508,7 @@ const App: React.FC = () => {
       if (!active) return;
       const { normalized, changed } = reconcileRecords(data);
       setRecords(normalized);
+      setRecordsHydrated(true);
       if (changed) {
         void saveRecords(normalized);
       }
@@ -543,6 +546,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!recordsHydrated) return;
     const interval = window.setInterval(() => {
       setRecords(prev => {
         const { normalized, changed } = reconcileRecords(prev);
@@ -552,7 +556,7 @@ const App: React.FC = () => {
       });
     }, 60_000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [recordsHydrated]);
 
   useEffect(() => {
     if (!user || users.length === 0) return;

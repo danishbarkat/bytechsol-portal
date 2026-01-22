@@ -26,7 +26,7 @@ import {
   updateCredentialsByEmployeeId
 } from './utils/storage';
 import { isSupabaseConfigured } from './utils/supabase';
-import { getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes, getZonedNowISOString } from './utils/dates';
+import { addDaysToDateString, buildZonedISOString, getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes, getZonedNowISOString } from './utils/dates';
 import Layout from './components/Layout';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeeDashboard from './components/EmployeeDashboard';
@@ -91,6 +91,55 @@ const computeOvertimeHours = (checkInIso: string, checkOutIso: string): number =
   return overtimeMinutes > 0 ? overtimeMinutes / 60 : 0;
 };
 
+const buildShiftEndISOString = (shiftDate: string) => {
+  const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
+  const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+  const isOvernight = endMinutes <= startMinutes;
+  const endDate = isOvernight ? addDaysToDateString(shiftDate, 1) : shiftDate;
+  return buildZonedISOString(endDate, APP_CONFIG.SHIFT_END);
+};
+
+const autoCloseStaleRecords = (list: AttendanceRecord[]) => {
+  const currentShiftDate = getShiftDateString(new Date(), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+  const openByUser = new Map<string, AttendanceRecord>();
+  list.forEach(record => {
+    if (!record.checkIn || record.checkOut) return;
+    const key = record.userId || record.userName || record.id;
+    const existing = openByUser.get(key);
+    if (!existing) {
+      openByUser.set(key, record);
+      return;
+    }
+    const existingTime = new Date(existing.checkIn).getTime();
+    const recordTime = new Date(record.checkIn).getTime();
+    if (Number.isFinite(recordTime) && recordTime > existingTime) {
+      openByUser.set(key, record);
+    }
+  });
+  let changed = false;
+  const normalized = list.map(record => {
+    if (!record.checkIn || record.checkOut) return record;
+    const key = record.userId || record.userName || record.id;
+    const latestOpen = openByUser.get(key);
+    const recordShiftDate = getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    const shouldClose = (latestOpen && latestOpen.id !== record.id) || recordShiftDate < currentShiftDate;
+    if (!shouldClose) return record;
+    const shiftEndIso = buildShiftEndISOString(recordShiftDate);
+    const totalHours = computeTotalHours(record.checkIn, shiftEndIso);
+    const overtimeHours = computeOvertimeHours(record.checkIn, shiftEndIso);
+    changed = true;
+    return {
+      ...record,
+      checkOut: shiftEndIso,
+      totalHours,
+      overtimeHours: overtimeHours > 0 ? overtimeHours : undefined
+    };
+  });
+  return { normalized, changed };
+};
+
 const normalizeOvertimeRecords = (list: AttendanceRecord[]) => {
   let changed = false;
   const normalized = list.map(record => {
@@ -109,6 +158,12 @@ const normalizeOvertimeRecords = (list: AttendanceRecord[]) => {
     return record;
   });
   return { normalized, changed };
+};
+
+const reconcileRecords = (list: AttendanceRecord[]) => {
+  const closed = autoCloseStaleRecords(list);
+  const overtime = normalizeOvertimeRecords(closed.normalized);
+  return { normalized: overtime.normalized, changed: closed.changed || overtime.changed };
 };
 
 const normalizeRecordUserIds = (list: AttendanceRecord[], userList: User[]) => {
@@ -278,7 +333,7 @@ const App: React.FC = () => {
         loadWfhRequests()
       ]);
       if (!active) return;
-      const { normalized, changed } = normalizeOvertimeRecords(recordsData);
+      const { normalized, changed } = reconcileRecords(recordsData);
       setRecords(normalized);
       if (changed) {
         void saveRecords(normalized);
@@ -449,7 +504,7 @@ const App: React.FC = () => {
     const refreshRecords = async () => {
       const data = await fetchRecordsRemote();
       if (!active) return;
-      const { normalized, changed } = normalizeOvertimeRecords(data);
+      const { normalized, changed } = reconcileRecords(data);
       setRecords(normalized);
       if (changed) {
         void saveRecords(normalized);

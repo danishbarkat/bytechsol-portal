@@ -543,6 +543,18 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const interval = window.setInterval(() => {
+      setRecords(prev => {
+        const { normalized, changed } = reconcileRecords(prev);
+        if (!changed) return prev;
+        void saveRecords(normalized);
+        return normalized;
+      });
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     if (!user || users.length === 0) return;
     const latest = users.find(
       u => u.id === user.id || (u.employeeId && user.employeeId && normalizeEmployeeId(u.employeeId) === normalizeEmployeeId(user.employeeId))

@@ -207,6 +207,50 @@ const logSupabaseError = (scope: string, error: unknown) => {
   console.error(`[supabase] ${scope} failed`, error);
 };
 
+const mergeRecords = (local: AttendanceRecord[], remote: AttendanceRecord[]) => {
+  let changed = false;
+  const merged = new Map<string, AttendanceRecord>();
+  local.forEach(record => {
+    if (!record.id) return;
+    merged.set(record.id, record);
+  });
+  remote.forEach(record => {
+    if (!record.id) return;
+    const existing = merged.get(record.id);
+    if (!existing) {
+      merged.set(record.id, record);
+      return;
+    }
+    let resolved = { ...existing, ...record };
+    if (!record.checkOut && existing.checkOut) {
+      resolved = { ...resolved, checkOut: existing.checkOut, totalHours: existing.totalHours, overtimeHours: existing.overtimeHours };
+      changed = true;
+    } else if (record.checkOut && existing.checkOut) {
+      const remoteTime = Date.parse(record.checkOut);
+      const localTime = Date.parse(existing.checkOut);
+      if (Number.isFinite(localTime) && Number.isFinite(remoteTime) && localTime > remoteTime) {
+        resolved = { ...resolved, checkOut: existing.checkOut, totalHours: existing.totalHours, overtimeHours: existing.overtimeHours };
+        changed = true;
+      }
+    }
+    merged.set(record.id, resolved);
+  });
+  remote.forEach(record => {
+    if (!record.id) return;
+    if (!merged.has(record.id)) {
+      merged.set(record.id, record);
+    }
+  });
+  local.forEach(record => {
+    if (!record.id) return;
+    if (!merged.has(record.id)) {
+      merged.set(record.id, record);
+      changed = true;
+    }
+  });
+  return { merged: Array.from(merged.values()), changed };
+};
+
 export const loadRecords = async (): Promise<AttendanceRecord[]> => {
   const local = loadLocal<AttendanceRecord[]>(ATTENDANCE_KEY, []);
   if (!isSupabaseConfigured || !supabase) return local;
@@ -216,8 +260,12 @@ export const loadRecords = async (): Promise<AttendanceRecord[]> => {
     return local;
   }
   const mapped = data.map(mapAttendanceFromDb);
-  saveLocal(ATTENDANCE_KEY, mapped);
-  return mapped;
+  const { merged, changed } = mergeRecords(local, mapped);
+  saveLocal(ATTENDANCE_KEY, merged);
+  if (changed) {
+    void saveRecords(merged);
+  }
+  return merged;
 };
 
 export const saveRecords = async (records: AttendanceRecord[]) => {
@@ -381,14 +429,19 @@ export const fetchRecordsRemote = async (): Promise<AttendanceRecord[]> => {
   if (!isSupabaseConfigured || !supabase) {
     return loadLocal<AttendanceRecord[]>(ATTENDANCE_KEY, []);
   }
+  const local = loadLocal<AttendanceRecord[]>(ATTENDANCE_KEY, []);
   const { data, error } = await supabase.from('attendance_records').select('*');
   if (error || !data) {
     logSupabaseError('fetchRecordsRemote', error);
-    return loadLocal<AttendanceRecord[]>(ATTENDANCE_KEY, []);
+    return local;
   }
   const mapped = data.map(mapAttendanceFromDb);
-  saveLocal(ATTENDANCE_KEY, mapped);
-  return mapped;
+  const { merged, changed } = mergeRecords(local, mapped);
+  saveLocal(ATTENDANCE_KEY, merged);
+  if (changed) {
+    void saveRecords(merged);
+  }
+  return merged;
 };
 
 export const fetchLeavesRemote = async (): Promise<LeaveRequest[]> => {

@@ -17,6 +17,61 @@ const parseDateUtc = (dateStr: string) => {
   return new Date(Date.UTC(year, month - 1, day));
 };
 
+const CROP_PREVIEW_SIZE = 160;
+const CROP_OUTPUT_SIZE = 512;
+
+const normalizeEmployeeId = (value: string): string => {
+  const cleaned = value.trim().toUpperCase().replace(/\s+/g, '');
+  const withoutPrefix = cleaned.replace(/^BS-/, '');
+  return `BS-${withoutPrefix}`;
+};
+
+const extractStoragePath = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    const match = trimmed.match(/\/storage\/v1\/object\/(?:public\/)?([^?]+)/);
+    if (!match) return null;
+    const rawPath = match[1];
+    const bucketPrefix = `${APP_CONFIG.PROFILE_IMAGE_BUCKET}/`;
+    return rawPath.startsWith(bucketPrefix) ? rawPath.slice(bucketPrefix.length) : rawPath;
+  }
+  const bucketPrefix = `${APP_CONFIG.PROFILE_IMAGE_BUCKET}/`;
+  return trimmed.startsWith(bucketPrefix) ? trimmed.slice(bucketPrefix.length) : trimmed;
+};
+
+const resolveProfileUrl = (value: string | null) => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+  if (!baseUrl) return trimmed;
+  return `${baseUrl}/storage/v1/object/public/${APP_CONFIG.PROFILE_IMAGE_BUCKET}/${trimmed}`;
+};
+
+const getBaseScale = (size: number, width: number, height: number) =>
+  size / Math.min(width || 1, height || 1);
+
+const clampOffset = (
+  offset: { x: number; y: number },
+  size: number,
+  width: number,
+  height: number,
+  zoom: number
+) => {
+  const baseScale = getBaseScale(size, width, height);
+  const scale = baseScale * zoom;
+  const scaledWidth = width * scale;
+  const scaledHeight = height * scale;
+  const maxX = Math.max(0, (scaledWidth - size) / 2);
+  const maxY = Math.max(0, (scaledHeight - size) / 2);
+  return {
+    x: Math.min(maxX, Math.max(-maxX, offset.x)),
+    y: Math.min(maxY, Math.max(-maxY, offset.y))
+  };
+};
+
 const countLeaveDaysInMonth = (leave: LeaveRequest, target: Date) => {
   if (!leave.startDate || !leave.endDate) return 0;
   const monthStart = new Date(Date.UTC(target.getFullYear(), target.getMonth(), 1));
@@ -102,6 +157,15 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileUploading, setProfileUploading] = useState(false);
+  const [resolvedProfileImage, setResolvedProfileImage] = useState<string | null>(resolveProfileUrl(user.profileImage || null));
+  const [profileImageRetried, setProfileImageRetried] = useState(false);
+  const [cropSource, setCropSource] = useState<string | null>(null);
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
+  const [cropImageSize, setCropImageSize] = useState({ width: 0, height: 0 });
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
+  const isDraggingRef = useRef(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -148,6 +212,24 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     setProfilePhone(user.phone || '');
     setProfileImage(user.profileImage || null);
   }, [user.id, user.name, user.email, user.phone, user.profileImage]);
+
+  useEffect(() => {
+    setResolvedProfileImage(resolveProfileUrl(profileImage));
+    setProfileImageRetried(false);
+  }, [profileImage]);
+
+  useEffect(() => {
+    return () => {
+      if (cropSource) {
+        URL.revokeObjectURL(cropSource);
+      }
+    };
+  }, [cropSource]);
+
+  useEffect(() => {
+    if (!cropSource || !cropImageSize.width || !cropImageSize.height) return;
+    setCropOffset(prev => clampOffset(prev, CROP_PREVIEW_SIZE, cropImageSize.width, cropImageSize.height, cropZoom));
+  }, [cropSource, cropImageSize, cropZoom]);
 
   const handleESSUpdate = () => {
     onUpdateESS(editProfile);
@@ -238,7 +320,120 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       setProfileError('Image must be under 3MB.');
       return;
     }
-    void uploadProfileImage(file);
+    const previewUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      setCropImageSize({ width: img.naturalWidth, height: img.naturalHeight });
+      setCropZoom(1);
+      setCropOffset({ x: 0, y: 0 });
+      setCropSource(previewUrl);
+      setProfileError(null);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(previewUrl);
+      setProfileError('Unable to read image file.');
+    };
+    img.src = previewUrl;
+  };
+
+  const handleProfileImageError = async () => {
+    if (profileImageRetried || !profileImage) return;
+    setProfileImageRetried(true);
+    if (!isSupabaseConfigured || !supabase) return;
+    const path = extractStoragePath(profileImage);
+    if (!path) return;
+    const { data } = await supabase
+      .storage
+      .from(APP_CONFIG.PROFILE_IMAGE_BUCKET)
+      .createSignedUrl(path, 60 * 60);
+    if (data?.signedUrl) {
+      setResolvedProfileImage(data.signedUrl);
+    }
+  };
+
+  const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!cropSource) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      offsetX: cropOffset.x,
+      offsetY: cropOffset.y
+    };
+    isDraggingRef.current = true;
+    setIsDraggingCrop(true);
+  };
+
+  const handleCropPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current || !cropSource) return;
+    const deltaX = event.clientX - dragStartRef.current.x;
+    const deltaY = event.clientY - dragStartRef.current.y;
+    const next = {
+      x: dragStartRef.current.offsetX + deltaX,
+      y: dragStartRef.current.offsetY + deltaY
+    };
+    setCropOffset(clampOffset(next, CROP_PREVIEW_SIZE, cropImageSize.width, cropImageSize.height, cropZoom));
+  };
+
+  const handleCropPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!cropSource) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    isDraggingRef.current = false;
+    setIsDraggingCrop(false);
+  };
+
+  const getCropStyle = () => {
+    const { width, height } = cropImageSize;
+    if (!width || !height) return {};
+    const baseScale = getBaseScale(CROP_PREVIEW_SIZE, width, height);
+    const scale = baseScale * cropZoom;
+    const scaledWidth = width * scale;
+    const scaledHeight = height * scale;
+    const x = (CROP_PREVIEW_SIZE - scaledWidth) / 2 + cropOffset.x;
+    const y = (CROP_PREVIEW_SIZE - scaledHeight) / 2 + cropOffset.y;
+    return {
+      width: `${scaledWidth}px`,
+      height: `${scaledHeight}px`,
+      transform: `translate(${x}px, ${y}px)`
+    };
+  };
+
+  const applyCroppedImage = async () => {
+    if (!cropSource) return;
+    try {
+      const img = new Image();
+      img.src = cropSource;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = CROP_OUTPUT_SIZE;
+      canvas.height = CROP_OUTPUT_SIZE;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('ctx');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, CROP_OUTPUT_SIZE, CROP_OUTPUT_SIZE);
+      const baseScale = getBaseScale(CROP_OUTPUT_SIZE, img.width, img.height);
+      const scale = baseScale * cropZoom;
+      const scaledWidth = img.width * scale;
+      const scaledHeight = img.height * scale;
+      const offsetScale = CROP_OUTPUT_SIZE / CROP_PREVIEW_SIZE;
+      const scaledOffset = clampOffset(
+        { x: cropOffset.x * offsetScale, y: cropOffset.y * offsetScale },
+        CROP_OUTPUT_SIZE,
+        img.width,
+        img.height,
+        cropZoom
+      );
+      const x = (CROP_OUTPUT_SIZE - scaledWidth) / 2 + scaledOffset.x;
+      const y = (CROP_OUTPUT_SIZE - scaledHeight) / 2 + scaledOffset.y;
+      ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+      if (!blob) throw new Error('blob');
+      const file = new File([blob], `profile_${user.employeeId || user.id}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      await uploadProfileImage(file);
+      setCropSource(null);
+    } catch {
+      setProfileError('Unable to apply crop. Try again.');
+    }
   };
 
   const handlePasswordReset = () => {
@@ -312,7 +507,17 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const workMode = user.workMode || 'Onsite';
   const canTrack = workMode === 'Remote' || isWifiConnected || isWfhToday;
   const salaryHidden = Boolean(user.salaryHidden);
-  const employeeRecords = records.filter(r => r.userId === user.id);
+  const normalizedEmployeeId = user.employeeId ? normalizeEmployeeId(user.employeeId) : '';
+  const employeeRecords = records.filter(r => {
+    if (r.userId === user.id) return true;
+    if (r.userId && normalizedEmployeeId) {
+      return normalizeEmployeeId(String(r.userId)) === normalizedEmployeeId;
+    }
+    if (r.userName && user.name) {
+      return r.userName.trim().toLowerCase() === user.name.trim().toLowerCase();
+    }
+    return false;
+  });
   const filteredEmployeeRecords = attendanceDateFilter
     ? employeeRecords.filter(r => resolveRecordDate(r) === attendanceDateFilter)
     : employeeRecords;
@@ -884,8 +1089,13 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     <label htmlFor="profile-photo" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Profile Photo (PNG/JPG)</label>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                       <div className="w-20 h-20 rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center">
-                        {profileImage ? (
-                          <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
+                        {resolvedProfileImage ? (
+                          <img
+                            src={resolvedProfileImage}
+                            alt="Profile"
+                            className="w-full h-full object-cover"
+                            onError={handleProfileImageError}
+                          />
                         ) : (
                           <span className="text-[10px] font-black text-slate-400 uppercase">No Photo</span>
                         )}
@@ -910,6 +1120,58 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                         )}
                       </div>
                     </div>
+                    {cropSource && (
+                      <div className="mt-4 p-4 rounded-2xl border border-slate-100 bg-slate-50 space-y-4">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Adjust Photo</p>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                          <div
+                            className="relative rounded-2xl overflow-hidden border border-slate-200 bg-white"
+                            style={{ width: `${CROP_PREVIEW_SIZE}px`, height: `${CROP_PREVIEW_SIZE}px`, touchAction: 'none' }}
+                            onPointerDown={handleCropPointerDown}
+                            onPointerMove={handleCropPointerMove}
+                            onPointerUp={handleCropPointerUp}
+                            onPointerLeave={handleCropPointerUp}
+                          >
+                            <img
+                              src={cropSource}
+                              alt="Crop preview"
+                              className={`absolute top-0 left-0 select-none ${isDraggingCrop ? 'cursor-grabbing' : 'cursor-grab'}`}
+                              style={getCropStyle()}
+                              draggable={false}
+                            />
+                          </div>
+                          <div className="flex-1 space-y-2">
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Zoom</label>
+                            <input
+                              type="range"
+                              min="0.7"
+                              max="3"
+                              step="0.01"
+                              value={cropZoom}
+                              onChange={e => setCropZoom(Number(e.target.value))}
+                              className="w-full"
+                            />
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={applyCroppedImage}
+                                className="px-4 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest"
+                              >
+                                Apply Photo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCropSource(null)}
+                                className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-500 text-[10px] font-black uppercase tracking-widest"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-[9px] font-bold text-slate-400">Drag to move. Zoom to fit.</p>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label htmlFor="profile-name" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Full Name</label>

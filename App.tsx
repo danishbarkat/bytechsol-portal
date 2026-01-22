@@ -111,6 +111,41 @@ const normalizeOvertimeRecords = (list: AttendanceRecord[]) => {
   return { normalized, changed };
 };
 
+const normalizeRecordUserIds = (list: AttendanceRecord[], userList: User[]) => {
+  if (userList.length === 0) return { normalized: list, changed: false };
+  let changed = false;
+  const normalized = list.map(record => {
+    if (!record.userId) return record;
+    if (userList.some(u => u.id === record.userId)) return record;
+    const normalizedRecordId = normalizeEmployeeId(String(record.userId));
+    const byEmployeeId = userList.find(
+      u => u.employeeId && normalizeEmployeeId(u.employeeId) === normalizedRecordId
+    );
+    if (byEmployeeId) {
+      changed = true;
+      return {
+        ...record,
+        userId: byEmployeeId.id,
+        userName: byEmployeeId.name || record.userName
+      };
+    }
+    const recordName = (record.userName || '').trim().toLowerCase();
+    if (recordName) {
+      const byName = userList.find(u => (u.name || '').trim().toLowerCase() === recordName);
+      if (byName) {
+        changed = true;
+        return {
+          ...record,
+          userId: byName.id,
+          userName: byName.name || record.userName
+        };
+      }
+    }
+    return record;
+  });
+  return { normalized, changed };
+};
+
 const playNotificationSound = () => {
   try {
     const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
@@ -451,6 +486,25 @@ const App: React.FC = () => {
       unsubscribers.forEach(unsub => unsub());
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || users.length === 0) return;
+    const latest = users.find(
+      u => u.id === user.id || (u.employeeId && user.employeeId && normalizeEmployeeId(u.employeeId) === normalizeEmployeeId(user.employeeId))
+    );
+    if (latest && latest !== user) {
+      setUser(latest);
+    }
+  }, [users, user]);
+
+  useEffect(() => {
+    if (users.length === 0 || records.length === 0) return;
+    const { normalized, changed } = normalizeRecordUserIds(records, users);
+    if (changed) {
+      setRecords(normalized);
+      void saveRecords(normalized);
+    }
+  }, [records, users]);
 
   const isDateInRange = (date: string, start: string, end: string) => {
     if (!date || !start || !end) return false;

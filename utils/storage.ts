@@ -36,28 +36,35 @@ const pickValue = <T>(row: Record<string, any>, keys: string[], fallback: T): T 
   return fallback;
 };
 
-const mapUserFromDb = (row: Record<string, any>): User => ({
-  id: String(pickValue(row, ['id'], '')),
-  name: String(pickValue(row, ['name'], '')),
-  firstName: pickValue(row, ['first_name', 'firstName'], undefined),
-  lastName: pickValue(row, ['last_name', 'lastName'], undefined),
-  dob: pickValue(row, ['dob'], undefined),
-  phone: pickValue(row, ['phone'], undefined),
-  email: String(pickValue(row, ['email'], '')),
-  role: pickValue(row, ['role'], Role.EMPLOYEE) as Role,
-  employeeId: String(pickValue(row, ['employee_id', 'employeeId'], '')),
-  password: pickValue(row, ['password'], undefined),
-  salary: pickValue(row, ['salary'], undefined),
-  basicSalary: pickValue(row, ['basic_salary', 'basicSalary'], undefined),
-  allowances: pickValue(row, ['allowances'], undefined),
-  salaryHidden: pickValue(row, ['salary_hidden', 'salaryHidden'], undefined),
-  pin: pickValue(row, ['pin_code', 'pin', 'pinCode'], undefined),
-  profileImage: pickValue(row, ['profile_image', 'profileImage'], undefined),
-  workMode: pickValue(row, ['work_mode', 'workMode'], undefined),
-  grade: pickValue(row, ['grade'], undefined),
-  teamLead: pickValue(row, ['team_lead', 'teamLead'], undefined),
-  position: pickValue(row, ['position'], undefined)
-});
+const mapUserFromDb = (row: Record<string, any>): User => {
+  const firstName = pickValue(row, ['first_name', 'firstName'], undefined);
+  const lastName = pickValue(row, ['last_name', 'lastName'], undefined);
+  const rawName = String(pickValue(row, ['name'], '') || '').trim();
+  const fallbackName = [firstName, lastName].filter(Boolean).join(' ').trim();
+  const resolvedName = rawName || fallbackName;
+  return {
+    id: String(pickValue(row, ['id'], '')),
+    name: resolvedName,
+    firstName,
+    lastName,
+    dob: pickValue(row, ['dob'], undefined),
+    phone: pickValue(row, ['phone'], undefined),
+    email: String(pickValue(row, ['email'], '')),
+    role: pickValue(row, ['role'], Role.EMPLOYEE) as Role,
+    employeeId: String(pickValue(row, ['employee_id', 'employeeId'], '')),
+    password: pickValue(row, ['password'], undefined),
+    salary: pickValue(row, ['salary'], undefined),
+    basicSalary: pickValue(row, ['basic_salary', 'basicSalary'], undefined),
+    allowances: pickValue(row, ['allowances'], undefined),
+    salaryHidden: pickValue(row, ['salary_hidden', 'salaryHidden'], undefined),
+    pin: pickValue(row, ['pin_code', 'pin', 'pinCode'], undefined),
+    profileImage: pickValue(row, ['profile_image', 'profileImage'], undefined),
+    workMode: pickValue(row, ['work_mode', 'workMode'], undefined),
+    grade: pickValue(row, ['grade'], undefined),
+    teamLead: pickValue(row, ['team_lead', 'teamLead'], undefined),
+    position: pickValue(row, ['position'], undefined)
+  };
+};
 
 const mapUserToDb = (user: User) => ({
   id: user.id,
@@ -84,7 +91,7 @@ const mapUserToDb = (user: User) => ({
 
 const mapAttendanceFromDb = (row: Record<string, any>): AttendanceRecord => ({
   id: String(pickValue(row, ['id'], '')),
-  userId: String(pickValue(row, ['user_id', 'userId'], '')),
+  userId: String(pickValue(row, ['user_id', 'userId', 'employee_id', 'employeeId'], '')),
   userName: String(pickValue(row, ['user_name', 'userName'], '')),
   date: String(pickValue(row, ['date'], '')),
   checkIn: String(pickValue(row, ['check_in', 'checkIn'], '')),

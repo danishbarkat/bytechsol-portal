@@ -66,6 +66,12 @@ const calculateMonthlyTax = (grossPay: number) => {
   return 500 + (salary - 100_000) * 0.05;
 };
 
+const normalizeEmployeeId = (value: string): string => {
+  const cleaned = value.trim().toUpperCase().replace(/\s+/g, '');
+  const withoutPrefix = cleaned.replace(/^BS-/, '');
+  return `BS-${withoutPrefix}`;
+};
+
 const parseDateUtc = (dateStr: string) => {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day));
@@ -595,10 +601,39 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const sortedVisibleUsers = [...visibleUsers].sort((a, b) => a.name.localeCompare(b.name));
   const workforceUsers = sortedVisibleUsers.filter(u => u.role !== Role.SUPERADMIN);
   const visibleUserIds = new Set(visibleUsers.map(u => u.id));
-  const visibleRecords = isSuperadmin ? records : records.filter(r => visibleUserIds.has(r.userId));
+  const visibleEmployeeIds = new Set(
+    visibleUsers
+      .map(u => u.employeeId)
+      .filter(Boolean)
+      .map(id => normalizeEmployeeId(String(id)))
+  );
+  const isRecordVisible = (record: AttendanceRecord) => {
+    if (visibleUserIds.has(record.userId)) return true;
+    if (record.userId) {
+      return visibleEmployeeIds.has(normalizeEmployeeId(String(record.userId)));
+    }
+    if (record.userName) {
+      return visibleUsers.some(u => u.name.trim().toLowerCase() === record.userName.trim().toLowerCase());
+    }
+    return false;
+  };
+  const visibleRecords = isSuperadmin ? records : records.filter(isRecordVisible);
   const visibleLeaves = isSuperadmin ? leaves : leaves.filter(l => visibleUserIds.has(l.userId));
   const visibleWfh = isSuperadmin ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));
-  const filteredAttendanceBase = selectedEmp === 'all' ? visibleRecords : visibleRecords.filter(r => r.userId === selectedEmp);
+  const selectedEmployee = sortedVisibleUsers.find(emp => emp.id === selectedEmp) || null;
+  const selectedEmployeeId = selectedEmployee?.employeeId ? normalizeEmployeeId(selectedEmployee.employeeId) : '';
+  const filteredAttendanceBase = selectedEmp === 'all'
+    ? visibleRecords
+    : visibleRecords.filter(r => {
+      if (r.userId === selectedEmp) return true;
+      if (selectedEmployeeId && r.userId) {
+        return normalizeEmployeeId(String(r.userId)) === selectedEmployeeId;
+      }
+      if (selectedEmployee && r.userName) {
+        return selectedEmployee.name.trim().toLowerCase() === r.userName.trim().toLowerCase();
+      }
+      return false;
+    });
   const filteredAttendance = attendanceDateFilter
     ? filteredAttendanceBase.filter(r => resolveRecordDate(r) === attendanceDateFilter)
     : filteredAttendanceBase;
@@ -630,7 +665,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const monthSummaryLabel = new Date(`${effectiveMonthFilter}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const monthTotalHours = monthlyAttendance.reduce((sum, r) => sum + (r.totalHours || 0), 0);
   const monthOvertimeHours = monthlyAttendance.reduce((sum, r) => sum + (r.overtimeHours || 0), 0);
-  const selectedEmployee = sortedVisibleUsers.find(emp => emp.id === selectedEmp) || null;
   const canApprove = user.role === Role.CEO || user.role === Role.SUPERADMIN;
   const isExecutive = user.role === Role.CEO || user.role === Role.SUPERADMIN;
   const roleOptions = isSuperadmin

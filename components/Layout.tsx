@@ -2,6 +2,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import logoUrl from '../asset/public/logo.svg';
 import { AppNotification } from '../types';
+import { APP_CONFIG } from '../constants';
+import { supabase, isSupabaseConfigured } from '../utils/supabase';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -11,6 +13,30 @@ interface LayoutProps {
   onMarkNotificationRead: (id: string) => void;
   onMarkAllNotificationsRead: () => void;
 }
+
+const extractStoragePath = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    const match = trimmed.match(/\/storage\/v1\/object\/(?:public\/)?([^?]+)/);
+    if (!match) return null;
+    const rawPath = match[1];
+    const bucketPrefix = `${APP_CONFIG.PROFILE_IMAGE_BUCKET}/`;
+    return rawPath.startsWith(bucketPrefix) ? rawPath.slice(bucketPrefix.length) : rawPath;
+  }
+  const bucketPrefix = `${APP_CONFIG.PROFILE_IMAGE_BUCKET}/`;
+  return trimmed.startsWith(bucketPrefix) ? trimmed.slice(bucketPrefix.length) : trimmed;
+};
+
+const resolveProfileUrl = (value: string | null) => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+  if (!baseUrl) return trimmed;
+  return `${baseUrl}/storage/v1/object/public/${APP_CONFIG.PROFILE_IMAGE_BUCKET}/${trimmed}`;
+};
 
 const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications, onMarkNotificationRead, onMarkAllNotificationsRead }) => {
   const formatter = useMemo(() => {
@@ -30,6 +56,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
   const autoOpenedRef = React.useRef(false);
   const unreadCount = notifications.filter(n => !n.read).length;
   const sortedNotifications = [...notifications].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(resolveProfileUrl(user.profileImage || null));
+  const [avatarRetried, setAvatarRetried] = useState(false);
 
   useEffect(() => {
     const tick = () => setCurrentTime(formatter.format(new Date()));
@@ -44,6 +72,26 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
       autoOpenedRef.current = true;
     }
   }, [unreadCount]);
+
+  useEffect(() => {
+    setAvatarUrl(resolveProfileUrl(user.profileImage || null));
+    setAvatarRetried(false);
+  }, [user.profileImage]);
+
+  const handleAvatarError = async () => {
+    if (avatarRetried || !user.profileImage) return;
+    setAvatarRetried(true);
+    if (!isSupabaseConfigured || !supabase) return;
+    const path = extractStoragePath(user.profileImage);
+    if (!path) return;
+    const { data } = await supabase
+      .storage
+      .from(APP_CONFIG.PROFILE_IMAGE_BUCKET)
+      .createSignedUrl(path, 60 * 60);
+    if (data?.signedUrl) {
+      setAvatarUrl(data.signedUrl);
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden">
@@ -75,15 +123,15 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                   )}
                 </button>
                 {showNotifications && (
-                  <div className="fixed left-4 right-4 sm:left-auto sm:right-4 top-16 sm:top-20 w-auto sm:w-96 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 shadow-2xl rounded-3xl overflow-hidden z-50">
-                    <div className="flex items-center justify-between px-5 py-4 sm:px-4 sm:py-3 border-b border-slate-100">
-                      <p className="text-xs sm:text-[10px] font-black uppercase tracking-widest text-slate-500">Notifications</p>
+                  <div className="fixed left-4 right-4 sm:left-auto sm:right-4 top-16 sm:top-20 w-auto sm:w-96 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden z-50">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Notifications</p>
                       <div className="flex items-center gap-3">
                         {unreadCount > 0 && (
                           <button
                             type="button"
                             onClick={onMarkAllNotificationsRead}
-                            className="text-[11px] sm:text-[9px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-700"
+                            className="text-[9px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-700"
                           >
                             Mark all read
                           </button>
@@ -94,25 +142,25 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                           className="text-slate-400 hover:text-slate-600"
                           aria-label="Close notifications"
                         >
-                          <svg className="w-5 h-5 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                           </svg>
                         </button>
                       </div>
                     </div>
                     {sortedNotifications.length === 0 ? (
-                      <div className="p-8 sm:p-6 text-center text-xs sm:text-[10px] font-black uppercase tracking-widest text-slate-300">
+                      <div className="p-6 text-center text-[10px] font-black uppercase tracking-widest text-slate-300">
                         No notifications
                       </div>
                     ) : (
-                      <div className="max-h-[70vh] sm:max-h-[60vh] overflow-y-auto">
+                      <div className="max-h-[60vh] overflow-y-auto">
                         {sortedNotifications.map(notification => (
-                          <div key={notification.id} className={`px-5 py-5 sm:px-4 sm:py-4 border-b border-slate-100 ${notification.read ? 'bg-white' : 'bg-blue-50/40'}`}>
+                          <div key={notification.id} className={`px-4 py-4 border-b border-slate-100 ${notification.read ? 'bg-white' : 'bg-blue-50/40'}`}>
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <p className="text-sm sm:text-xs font-black text-slate-900">{notification.title}</p>
-                                <p className="text-[12px] sm:text-[10px] font-bold text-slate-500 mt-2 break-words">{notification.message}</p>
-                                <p className="text-[10px] sm:text-[9px] font-black uppercase tracking-widest text-slate-300 mt-3">
+                                <p className="text-xs font-black text-slate-900">{notification.title}</p>
+                              <p className="text-[10px] font-bold text-slate-500 mt-1 break-words">{notification.message}</p>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-300 mt-2">
                                   {new Date(notification.createdAt).toLocaleString()}
                                 </p>
                               </div>
@@ -120,7 +168,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                                 <button
                                   type="button"
                                   onClick={() => onMarkNotificationRead(notification.id)}
-                                  className="text-[11px] sm:text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-700"
+                                  className="text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-700"
                                 >
                                   Mark read
                                 </button>
@@ -138,8 +186,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, notifications
                 <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">{user.position || user.role}</p>
               </div>
               <div className="hidden sm:flex items-center justify-center w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
-                {user.profileImage ? (
-                  <img src={user.profileImage} alt={user.name} className="w-full h-full object-cover" />
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={user.name} className="w-full h-full object-cover" onError={handleAvatarError} />
                 ) : (
                   <span className="text-[11px] font-black text-slate-400 uppercase">
                     {(user.name || 'U').split(' ').map(part => part[0]).join('').slice(0, 2)}

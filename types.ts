@@ -42,6 +42,7 @@ export interface AttendanceRecord {
   totalHours?: number;
   status?: CheckInStatus;
   overtimeHours?: number;
+  localUpdatedAt?: string;
 }
 
 export interface LeaveRequest {

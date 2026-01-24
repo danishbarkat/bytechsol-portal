@@ -221,6 +221,10 @@ const mergeRecords = (local: AttendanceRecord[], remote: AttendanceRecord[]) => 
       merged.set(record.id, record);
       return;
     }
+    if (existing.localUpdatedAt) {
+      merged.set(record.id, { ...record, ...existing });
+      return;
+    }
     let resolved = { ...existing, ...record };
     if (!record.checkOut && existing.checkOut) {
       resolved = { ...resolved, checkOut: existing.checkOut, totalHours: existing.totalHours, overtimeHours: existing.overtimeHours };
@@ -282,9 +286,30 @@ export const saveRecords = async (records: AttendanceRecord[]) => {
         record.check_in
     );
   if (payload.length === 0) return;
-  const { error } = await supabase.from('attendance_records').upsert(payload, { onConflict: 'id' });
+  const chunkSize = 200;
+  for (let i = 0; i < payload.length; i += chunkSize) {
+    const chunk = payload.slice(i, i + chunkSize);
+    const { error } = await supabase.from('attendance_records').upsert(chunk, { onConflict: 'id' });
+    if (error) {
+      logSupabaseError('saveRecords', error);
+      break;
+    }
+  }
+};
+
+export const saveRecordsLocal = (records: AttendanceRecord[]) => {
+  saveLocal(ATTENDANCE_KEY, records);
+};
+
+export const upsertAttendanceRecord = async (record: AttendanceRecord) => {
+  if (!isSupabaseConfigured || !supabase) return;
+  const payload = mapAttendanceToDb(record);
+  if (!payload.id || !payload.user_id || !payload.user_name || !payload.date || !payload.check_in) {
+    return;
+  }
+  const { error } = await supabase.from('attendance_records').upsert([payload], { onConflict: 'id' });
   if (error) {
-    logSupabaseError('saveRecords', error);
+    logSupabaseError('upsertAttendanceRecord', error);
   }
 };
 
@@ -526,6 +551,14 @@ export const deleteUserData = async (userId: string) => {
     supabase.from('users').delete().eq('id', userId)
   ];
   await Promise.all(tasks);
+};
+
+export const deleteAttendanceRecord = async (recordId: string) => {
+  if (!isSupabaseConfigured || !supabase) return;
+  const { error } = await supabase.from('attendance_records').delete().eq('id', recordId);
+  if (error) {
+    logSupabaseError('deleteAttendanceRecord', error);
+  }
 };
 
 export const formatDuration = (hours: number): string => {

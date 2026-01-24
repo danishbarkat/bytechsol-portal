@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AttendanceRecord, LeaveRequest, Role, User, ESSProfile, UserChecklist, WorkFromHomeRequest } from '../types';
+import { AttendanceRecord, LeaveRequest, Role, User, ESSProfile, UserChecklist, WorkFromHomeRequest, CheckInStatus } from '../types';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
-import { addDaysToDateString, getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, buildZonedISOString, formatTimeInZone } from '../utils/dates';
+import { addDaysToDateString, getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, buildZonedISOString, formatTimeInZone, getWeekdayLabel } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
 import logoUrl from '../asset/public/logo.svg';
 
@@ -452,6 +452,7 @@ interface AdminDashboardProps {
   onCheckOut: () => void;
   isWifiConnected: boolean;
   onUpdateRecord: (updatedRecord: AttendanceRecord) => void;
+  onDeleteRecord: (recordId: string) => void;
   onUpdateChecklist: (checklist: UserChecklist) => void;
   onAddUser: (user: User) => void;
   onUpdateUser: (user: User) => void;
@@ -474,6 +475,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onCheckOut,
   isWifiConnected,
   onUpdateRecord,
+  onDeleteRecord,
   onUpdateChecklist,
   onAddUser,
   onUpdateUser,
@@ -493,6 +495,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [editDate, setEditDate] = useState('');
   const [editInTime, setEditInTime] = useState('');
   const [editOutTime, setEditOutTime] = useState('');
+  const [editOutDate, setEditOutDate] = useState('');
+  const [isAddingRecord, setIsAddingRecord] = useState(false);
+  const [newRecordUserId, setNewRecordUserId] = useState('');
+  const [newRecordDate, setNewRecordDate] = useState(() => getLocalDateString(new Date()));
+  const [newRecordCheckIn, setNewRecordCheckIn] = useState('');
+  const [newRecordCheckOut, setNewRecordCheckOut] = useState('');
+  const [newRecordOutDate, setNewRecordOutDate] = useState(() => getLocalDateString(new Date()));
 
   // User Edit States
   const [userForm, setUserForm] = useState<Partial<User>>({});
@@ -593,13 +602,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const isCeo = user.role === Role.CEO;
   const canDeleteUsers = isSuperadmin || isCeo;
   const canResetPassword = Boolean(editingUser && editingUser.role !== Role.SUPERADMIN);
-  const visibleUsers = isHr
-    ? users.filter(u => u.role !== Role.SUPERADMIN && u.role !== Role.CEO)
-    : isCeo
-      ? users.filter(u => u.role !== Role.SUPERADMIN)
-      : users;
-  const sortedVisibleUsers = [...visibleUsers].sort((a, b) => a.name.localeCompare(b.name));
-  const workforceUsers = sortedVisibleUsers.filter(u => u.role !== Role.SUPERADMIN);
+  const visibleUsers = users;
+  const sortedVisibleUsers = [...visibleUsers].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const workforceUsers = sortedVisibleUsers;
   const visibleUserIds = new Set(visibleUsers.map(u => u.id));
   const visibleEmployeeIds = new Set(
     visibleUsers
@@ -673,7 +678,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const salarySlipSelfOnly = isHr && docType === 'salary-slip';
   const documentUsers = salarySlipSelfOnly
     ? [user]
-    : sortedVisibleUsers.filter(u => u.role !== Role.SUPERADMIN);
+    : sortedVisibleUsers;
   const [shiftStartHour, shiftStartMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
   const [shiftEndHour, shiftEndMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
   const shiftStartMinutes = shiftStartHour * 60 + shiftStartMinute;
@@ -714,17 +719,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, [salarySlipSelfOnly, selectedDocUserId, user.id, users]);
 
   const getDisplayStatus = (record: AttendanceRecord) => {
-    const worker = users.find(u => u.id === record.userId);
-    if (worker?.workMode === 'Remote') return record.status || 'On-Time';
     if (!record.checkIn) return record.status || 'On-Time';
-    const checkInDate = new Date(record.checkIn);
-    const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
-      checkInDate,
-      APP_CONFIG.SHIFT_START,
-      APP_CONFIG.SHIFT_END
-    );
-    if (currentMinutes < startMinutes) return 'Early';
-    return record.status || 'On-Time';
+    return calculateCheckInStatus(record);
   };
 
   const getCheckoutStatus = (record: AttendanceRecord) => {
@@ -920,10 +916,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const weeklyOT = calculateWeeklyOvertime(user.id, records);
 
   const startEditingRecord = (r: AttendanceRecord) => {
+    const safeTime = (value?: string) => {
+      if (!value) return '';
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return '';
+      return parsed.toTimeString().slice(0, 5);
+    };
     setEditingRecord(r);
-    setEditDate(r.date);
-    setEditInTime(new Date(r.checkIn).toTimeString().slice(0, 5));
-    setEditOutTime(r.checkOut ? new Date(r.checkOut).toTimeString().slice(0, 5) : '');
+    const fallbackDate = r.date || getLocalDateString(new Date(r.checkIn));
+    setEditDate(fallbackDate);
+    setEditInTime(safeTime(r.checkIn));
+    setEditOutTime(safeTime(r.checkOut));
+    const resolvedOutDate = r.checkOut ? getLocalDateString(new Date(r.checkOut)) : '';
+    setEditOutDate(resolvedOutDate || fallbackDate);
   };
 
   const startEditingUser = (u: User) => {
@@ -948,13 +953,47 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setEssForm(profile);
   };
 
+  const calculateCheckInStatus = (record: AttendanceRecord): CheckInStatus => {
+    if (!record.checkIn) return record.status || 'On-Time';
+    const worker = users.find(u => u.id === record.userId);
+    if (worker?.workMode === 'Remote') return 'On-Time';
+    const checkInDate = new Date(record.checkIn);
+    if (Number.isNaN(checkInDate.getTime())) return record.status || 'On-Time';
+    const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
+      checkInDate,
+      APP_CONFIG.SHIFT_START,
+      APP_CONFIG.SHIFT_END
+    );
+    const shiftDate = getShiftDateString(checkInDate, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
+    const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));
+    const workerId = worker?.employeeId ? normalizeEmployeeId(worker.employeeId) : '';
+    const isExemptUser = Boolean(workerId) && exemptIds.includes(workerId);
+    const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
+    const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+    const startTotal = startHour * 60 + startMinute;
+    const endTotal = endHour * 60 + endMinute;
+    const isOvernight = endTotal <= startTotal;
+    const [cutoffHour, cutoffMinute] = APP_CONFIG.FRIDAY_LATE_EXEMPT_CUTOFF.split(':').map(Number);
+    const cutoffBase = cutoffHour * 60 + cutoffMinute;
+    const cutoffAdjusted = isOvernight && cutoffBase < endTotal ? cutoffBase + 24 * 60 : cutoffBase;
+    if (isFriday && isExemptUser && currentMinutes <= cutoffAdjusted) {
+      return 'On-Time';
+    }
+    const relaxation = APP_CONFIG.GRACE_PERIOD_MINS;
+    if (currentMinutes < startMinutes) return 'Early';
+    if (currentMinutes <= startMinutes + relaxation) return 'On-Time';
+    return 'Late';
+  };
+
   const handleEditRecordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingRecord) {
       const updatedCheckIn = buildZonedISOString(editDate, editInTime);
-      const resolvedOutDate = editOutTime && editOutTime < editInTime
-        ? addDaysToDateString(editDate, 1)
-        : editDate;
+      let resolvedOutDate = editOutDate || editDate;
+      if (editOutTime && editInTime && editOutTime < editInTime && resolvedOutDate === editDate) {
+        resolvedOutDate = addDaysToDateString(editDate, 1);
+      }
       const updatedCheckOut = editOutTime
         ? buildZonedISOString(resolvedOutDate, editOutTime)
         : undefined;
@@ -963,7 +1002,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const diff = (new Date(updatedCheckOut).getTime() - new Date(updatedCheckIn).getTime()) / (1000 * 60 * 60);
         totalHours = diff > 0 ? diff : 0;
       }
-      onUpdateRecord({ ...editingRecord, date: editDate, checkIn: updatedCheckIn, checkOut: updatedCheckOut, totalHours });
+      const nextStatus = calculateCheckInStatus({ ...editingRecord, checkIn: updatedCheckIn });
+      onUpdateRecord({
+        ...editingRecord,
+        date: editDate,
+        checkIn: updatedCheckIn,
+        checkOut: updatedCheckOut,
+        totalHours,
+        status: nextStatus,
+        localUpdatedAt: new Date().toISOString()
+      });
       setEditingRecord(null);
     }
   };
@@ -1291,21 +1339,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
                 </div>
               </div>
-              {attendanceDateFilter && (
-                <button
-                  type="button"
-                  onClick={() => setAttendanceDateFilter('')}
-                  className="px-4 py-3 rounded-2xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-            {selectedEmp !== 'all' && (
-              <button onClick={() => downloadIndividualReport(selectedEmp)} className="bg-emerald-50 text-emerald-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 hover:bg-emerald-100 transition-all flex items-center gap-2 w-full sm:w-auto justify-center">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                Download Monthly Sheet
+            {attendanceDateFilter && (
+              <button
+                type="button"
+                onClick={() => setAttendanceDateFilter('')}
+                className="px-4 py-3 rounded-2xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all"
+              >
+                Clear
               </button>
+            )}
+          </div>
+          {isSuperadmin && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsAddingRecord(true);
+                setNewRecordUserId('');
+                const today = getLocalDateString(new Date());
+                setNewRecordDate(today);
+                setNewRecordOutDate(today);
+                setNewRecordCheckIn('');
+                setNewRecordCheckOut('');
+              }}
+              className="bg-blue-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 transition-all w-full sm:w-auto"
+            >
+              Add Attendance
+            </button>
+          )}
+          {selectedEmp !== 'all' && (
+            <button onClick={() => downloadIndividualReport(selectedEmp)} className="bg-emerald-50 text-emerald-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 hover:bg-emerald-100 transition-all flex items-center gap-2 w-full sm:w-auto justify-center">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+              Download Monthly Sheet
+            </button>
             )}
           </div>
           <div className="glass-card rounded-[2.5rem]">
@@ -1950,6 +2015,90 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
+      {/* Add Attendance Modal */}
+      {isAddingRecord && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase mb-2">Add Attendance</h3>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8">Super Admin Only</p>
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                const targetUser = users.find(u => u.id === newRecordUserId);
+                if (!targetUser || !newRecordDate || !newRecordCheckIn) return;
+                const checkInIso = buildZonedISOString(newRecordDate, newRecordCheckIn);
+                let resolvedOutDate = newRecordOutDate || newRecordDate;
+                if (newRecordCheckOut && newRecordCheckIn && newRecordCheckOut < newRecordCheckIn && resolvedOutDate === newRecordDate) {
+                  resolvedOutDate = addDaysToDateString(newRecordDate, 1);
+                }
+                const checkOutIso = newRecordCheckOut
+                  ? buildZonedISOString(resolvedOutDate, newRecordCheckOut)
+                  : undefined;
+                let totalHours = undefined;
+                if (checkOutIso) {
+                  const diff = (new Date(checkOutIso).getTime() - new Date(checkInIso).getTime()) / (1000 * 60 * 60);
+                  totalHours = diff > 0 ? diff : 0;
+                }
+                const draftRecord: AttendanceRecord = {
+                  id: Math.random().toString(36).substr(2, 9),
+                  userId: targetUser.id,
+                  userName: targetUser.name,
+                  date: newRecordDate,
+                  checkIn: checkInIso,
+                  checkOut: checkOutIso,
+                  totalHours,
+                  status: 'On-Time',
+                  localUpdatedAt: new Date().toISOString()
+                };
+                draftRecord.status = calculateCheckInStatus(draftRecord);
+                onUpdateRecord(draftRecord);
+                setIsAddingRecord(false);
+              }}
+              className="space-y-6"
+            >
+              <div className="space-y-1">
+                <label htmlFor="add-attendance-user" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee</label>
+                <select
+                  id="add-attendance-user"
+                  name="attendanceUser"
+                  value={newRecordUserId}
+                  onChange={e => setNewRecordUserId(e.target.value)}
+                  className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800"
+                  required
+                >
+                  <option value="" disabled>Select employee</option>
+                  {sortedVisibleUsers.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name} ({emp.employeeId})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="add-attendance-date" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Shift Date</label>
+                <input id="add-attendance-date" name="attendanceDate" type="date" value={newRecordDate} onChange={e => setNewRecordDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" required />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="add-attendance-out-date" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check Out Date</label>
+                <input id="add-attendance-out-date" name="attendanceOutDate" type="date" value={newRecordOutDate} onChange={e => setNewRecordOutDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label htmlFor="add-attendance-in" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check In</label>
+                  <input id="add-attendance-in" name="attendanceCheckIn" type="time" value={newRecordCheckIn} onChange={e => setNewRecordCheckIn(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" required />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="add-attendance-out" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check Out</label>
+                  <input id="add-attendance-out" name="attendanceCheckOut" type="time" value={newRecordCheckOut} onChange={e => setNewRecordCheckOut(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" />
+                </div>
+              </div>
+              <div className="flex space-x-3 pt-4">
+                <button type="submit" className="flex-1 premium-gradient text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">Create Record</button>
+                <button type="button" onClick={() => setIsAddingRecord(false)} className="px-8 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-xs uppercase tracking-widest">Discard</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Manual Edit Modal */}
       {editingRecord && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
@@ -1958,8 +2107,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8">Record ID: {editingRecord.id}</p>
             <form onSubmit={handleEditRecordSubmit} className="space-y-6">
               <div className="space-y-1"><label htmlFor="manual-edit-date" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Calendar Date</label><input id="manual-edit-date" name="manualDate" type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div>
+              <div className="space-y-1"><label htmlFor="manual-edit-out-date" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check Out Date</label><input id="manual-edit-out-date" name="manualOutDate" type="date" value={editOutDate} onChange={e => setEditOutDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div>
               <div className="grid grid-cols-2 gap-4"><div className="space-y-1"><label htmlFor="manual-edit-in" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check In</label><input id="manual-edit-in" name="manualCheckIn" type="time" value={editInTime} onChange={e => setEditInTime(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div><div className="space-y-1"><label htmlFor="manual-edit-out" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check Out</label><input id="manual-edit-out" name="manualCheckOut" type="time" value={editOutTime} onChange={e => setEditOutTime(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div></div>
-              <div className="flex space-x-3 pt-4"><button type="submit" className="flex-1 premium-gradient text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">Save Overrides</button><button type="button" onClick={() => setEditingRecord(null)} className="px-8 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-xs uppercase tracking-widest">Discard</button></div>
+              <div className="flex flex-wrap gap-3 pt-4">
+                {isSuperadmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!editingRecord) return;
+                      if (!window.confirm('Delete this attendance record?')) return;
+                      onDeleteRecord(editingRecord.id);
+                      setEditingRecord(null);
+                    }}
+                    className="px-6 py-4 bg-rose-50 text-rose-600 rounded-2xl font-black text-xs uppercase tracking-widest border border-rose-100"
+                  >
+                    Delete Record
+                  </button>
+                )}
+                <button type="submit" className="flex-1 premium-gradient text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">Save Overrides</button>
+                <button type="button" onClick={() => setEditingRecord(null)} className="px-8 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-xs uppercase tracking-widest">Discard</button>
+              </div>
             </form>
           </div>
         </div>

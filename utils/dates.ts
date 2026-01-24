@@ -1,4 +1,9 @@
+const isValidDate = (date: Date) => Number.isFinite(date.getTime());
+
+const isValidDateString = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
 export const getLocalDateString = (date: Date = new Date(), timeZone = 'Asia/Karachi'): string => {
+  if (!isValidDate(date)) return '';
   return new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
@@ -8,6 +13,9 @@ export const getLocalDateString = (date: Date = new Date(), timeZone = 'Asia/Kar
 };
 
 const getLocalDateParts = (date: Date, timeZone = 'Asia/Karachi') => {
+  if (!isValidDate(date)) {
+    return { year: 0, month: 0, day: 0, hour: 0, minute: 0 };
+  }
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
@@ -47,7 +55,9 @@ export const getShiftAdjustedMinutes = (
 };
 
 export const addDaysToDateString = (dateStr: string, days: number): string => {
+  if (!isValidDateString(dateStr)) return dateStr;
   const [year, month, day] = dateStr.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return dateStr;
   const utcDate = new Date(Date.UTC(year, month - 1, day));
   utcDate.setUTCDate(utcDate.getUTCDate() + days);
   return utcDate.toISOString().split('T')[0];
@@ -59,6 +69,7 @@ export const getShiftDateString = (
   shiftEnd: string,
   timeZone = 'Asia/Karachi'
 ): string => {
+  if (!isValidDate(date)) return '';
   const localDate = getLocalDateString(date, timeZone);
   const { hour, minute } = getLocalDateParts(date, timeZone);
   const currentMinutes = hour * 60 + minute;
@@ -75,6 +86,7 @@ export const getShiftDateString = (
 };
 
 export const getWeekdayLabel = (dateStr: string, timeZone = 'Asia/Karachi'): string => {
+  if (!isValidDateString(dateStr)) return '';
   const [year, month, day] = dateStr.split('-').map(Number);
   const utcDate = new Date(Date.UTC(year, month - 1, day));
   return new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(utcDate);
@@ -87,6 +99,7 @@ export const getLocalTimeMinutes = (date: Date, timeZone = 'Asia/Karachi'): numb
 
 export const formatTimeInZone = (value: string | Date, timeZone = 'Asia/Karachi'): string => {
   const date = typeof value === 'string' ? new Date(value) : value;
+  if (!isValidDate(date)) return '';
   return new Intl.DateTimeFormat('en-US', {
     timeZone,
     hour: '2-digit',

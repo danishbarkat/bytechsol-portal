@@ -29,7 +29,7 @@ import {
   updateCredentialsByEmployeeId
 } from './utils/storage';
 import { isSupabaseConfigured } from './utils/supabase';
-import { addDaysToDateString, buildZonedISOString, getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes, getZonedNowISOString } from './utils/dates';
+import { addDaysToDateString, getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes, getZonedNowISOString } from './utils/dates';
 import Layout from './components/Layout';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeeDashboard from './components/EmployeeDashboard';
@@ -97,55 +97,6 @@ const computeOvertimeHours = (checkInIso: string, checkOutIso: string): number =
   return overtimeMinutes > 0 ? overtimeMinutes / 60 : 0;
 };
 
-const buildShiftEndISOString = (shiftDate: string) => {
-  const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
-  const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
-  const startMinutes = startHour * 60 + startMinute;
-  const endMinutes = endHour * 60 + endMinute;
-  const isOvernight = endMinutes <= startMinutes;
-  const endDate = isOvernight ? addDaysToDateString(shiftDate, 1) : shiftDate;
-  return buildZonedISOString(endDate, APP_CONFIG.SHIFT_END);
-};
-
-const autoCloseStaleRecords = (list: AttendanceRecord[]) => {
-  const currentShiftDate = getShiftDateString(new Date(), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
-  const openByUser = new Map<string, AttendanceRecord>();
-  list.forEach(record => {
-    if (!record.checkIn || record.checkOut) return;
-    const key = record.userId || record.userName || record.id;
-    const existing = openByUser.get(key);
-    if (!existing) {
-      openByUser.set(key, record);
-      return;
-    }
-    const existingTime = new Date(existing.checkIn).getTime();
-    const recordTime = new Date(record.checkIn).getTime();
-    if (Number.isFinite(recordTime) && recordTime > existingTime) {
-      openByUser.set(key, record);
-    }
-  });
-  let changed = false;
-  const normalized = list.map(record => {
-    if (!record.checkIn || record.checkOut) return record;
-    const key = record.userId || record.userName || record.id;
-    const latestOpen = openByUser.get(key);
-    const recordShiftDate = getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
-    const shouldClose = (latestOpen && latestOpen.id !== record.id) || recordShiftDate < currentShiftDate;
-    if (!shouldClose) return record;
-    const shiftEndIso = buildShiftEndISOString(recordShiftDate);
-    const totalHours = computeTotalHours(record.checkIn, shiftEndIso);
-    const overtimeHours = computeOvertimeHours(record.checkIn, shiftEndIso);
-    changed = true;
-    return {
-      ...record,
-      checkOut: shiftEndIso,
-      totalHours,
-      overtimeHours: overtimeHours > 0 ? overtimeHours : undefined
-    };
-  });
-  return { normalized, changed };
-};
-
 const normalizeOvertimeRecords = (list: AttendanceRecord[]) => {
   let changed = false;
   const normalized = list.map(record => {
@@ -164,12 +115,6 @@ const normalizeOvertimeRecords = (list: AttendanceRecord[]) => {
     return record;
   });
   return { normalized, changed };
-};
-
-const reconcileRecords = (list: AttendanceRecord[]) => {
-  const closed = autoCloseStaleRecords(list);
-  const overtime = normalizeOvertimeRecords(closed.normalized);
-  return { normalized: overtime.normalized, changed: closed.changed || overtime.changed };
 };
 
 const normalizeRecordUserIds = (list: AttendanceRecord[], userList: User[]) => {
@@ -336,7 +281,6 @@ const App: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [recordsHydrated, setRecordsHydrated] = useState(false);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [essProfiles, setEssProfiles] = useState<ESSProfile[]>([]);
   const [checklists, setChecklists] = useState<UserChecklist[]>([]);
@@ -396,9 +340,8 @@ const App: React.FC = () => {
         loadWfhRequests()
       ]);
       if (!active) return;
-      const { normalized, changed } = reconcileRecords(recordsData);
+      const { normalized, changed } = normalizeOvertimeRecords(recordsData);
       setRecords(normalized);
-      setRecordsHydrated(true);
       if (changed) {
         void saveRecords(normalized);
       }
@@ -571,9 +514,8 @@ const App: React.FC = () => {
     const refreshRecords = async () => {
       const data = await fetchRecordsRemote();
       if (!active) return;
-      const { normalized, changed } = reconcileRecords(data);
+      const { normalized, changed } = normalizeOvertimeRecords(data);
       setRecords(normalized);
-      setRecordsHydrated(true);
       if (changed) {
         void saveRecords(normalized);
       }
@@ -611,19 +553,6 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!recordsHydrated) return;
-    const interval = window.setInterval(() => {
-      setRecords(prev => {
-        const { normalized, changed } = reconcileRecords(prev);
-        if (!changed) return prev;
-        void saveRecords(normalized);
-        return normalized;
-      });
-    }, 60_000);
-    return () => window.clearInterval(interval);
-  }, [recordsHydrated]);
-
-  useEffect(() => {
     if (!user || users.length === 0) return;
     const latest = users.find(
       u => u.id === user.id || (u.employeeId && user.employeeId && normalizeEmployeeId(u.employeeId) === normalizeEmployeeId(user.employeeId))
@@ -647,12 +576,57 @@ const App: React.FC = () => {
     return date >= start && date <= end;
   };
 
+  const isWeekend = (dateStr: string) => {
+    const label = getWeekdayLabel(dateStr);
+    return label === 'Sat' || label === 'Sun';
+  };
+
   const isWfhApprovedForUser = (targetUserId: string, dateStr: string) =>
     wfhRequests.some(req =>
       req.userId === targetUserId &&
       req.status === 'Approved' &&
       isDateInRange(dateStr, req.startDate, req.endDate)
     );
+
+  useEffect(() => {
+    if (users.length === 0) return;
+    const todayStr = getLocalDateString(new Date());
+    const targetDate = addDaysToDateString(todayStr, -1);
+    if (isWeekend(targetDate)) return;
+    const newLeaves: LeaveRequest[] = [];
+    users
+      .filter(u => u.role !== Role.SUPERADMIN)
+      .forEach(target => {
+        const hasAttendance = records.some(r => r.userId === target.id && r.date === targetDate);
+        if (hasAttendance) return;
+        const hasLeave = leaves.some(l =>
+          l.userId === target.id &&
+          l.status !== 'Cancelled' &&
+          isDateInRange(targetDate, l.startDate, l.endDate)
+        );
+        if (hasLeave) return;
+        const hasWfh = isWfhApprovedForUser(target.id, targetDate);
+        if (hasWfh) return;
+        const leaveId = `auto-absence:${target.id}:${targetDate}`;
+        if (leaves.some(l => l.id === leaveId)) return;
+        newLeaves.push({
+          id: leaveId,
+          userId: target.id,
+          userName: target.name,
+          startDate: targetDate,
+          endDate: targetDate,
+          reason: 'Auto marked absence',
+          status: 'Approved',
+          submittedAt: new Date().toISOString(),
+          isPaid: false
+        });
+      });
+    if (newLeaves.length > 0) {
+      const updated = [...leaves, ...newLeaves];
+      setLeaves(updated);
+      void saveLeaves(updated);
+    }
+  }, [users, records, leaves, wfhRequests]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();

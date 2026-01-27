@@ -31,6 +31,10 @@ import {
 import {
   adminUpsertAttendanceRecord,
   adminDeleteAttendanceRecord,
+  adminFetchLeaves,
+  adminUpsertLeave,
+  adminFetchWfhRequests,
+  adminUpsertWfhRequest,
   adminUpsertUser,
   adminDeleteUser
 } from './utils/adminApi';
@@ -646,10 +650,28 @@ const App: React.FC = () => {
       }
     };
     const refreshLeaves = async () => {
+      if (user?.role === Role.CEO || user?.role === Role.SUPERADMIN) {
+        try {
+          const response = await adminFetchLeaves();
+          if (active) setLeaves(response.data || []);
+          return;
+        } catch (err) {
+          console.error(err);
+        }
+      }
       const data = await fetchLeavesRemote();
       if (active) setLeaves(data);
     };
     const refreshWfh = async () => {
+      if (user?.role === Role.CEO || user?.role === Role.SUPERADMIN) {
+        try {
+          const response = await adminFetchWfhRequests();
+          if (active) setWfhRequests(response.data || []);
+          return;
+        } catch (err) {
+          console.error(err);
+        }
+      }
       const data = await loadWfhRequests();
       if (active) setWfhRequests(data);
     };
@@ -675,7 +697,7 @@ const App: React.FC = () => {
       active = false;
       unsubscribers.forEach(unsub => unsub());
     };
-  }, []);
+  }, [user?.role]);
 
   useEffect(() => {
     if (!user || users.length === 0) return;
@@ -1000,7 +1022,14 @@ const App: React.FC = () => {
     const targetLeave = leaves.find(l => l.id === leaveId);
     const updated = leaves.map(l => l.id === leaveId ? { ...l, status: action } : l);
     setLeaves(updated);
-    void saveLeaves(updated);
+    if (user?.role === Role.CEO || user?.role === Role.SUPERADMIN) {
+      const leaveToUpdate = updated.find(l => l.id === leaveId);
+      if (leaveToUpdate) {
+        void adminUpsertLeave(leaveToUpdate).catch(console.error);
+      }
+    } else {
+      void saveLeaves(updated);
+    }
     if (targetLeave) {
       addOrUpdateNotification({
         id: `leave-status:${leaveId}`,
@@ -1052,7 +1081,14 @@ const App: React.FC = () => {
       return { ...req, status: action };
     });
     setWfhRequests(updated);
-    void saveWfhRequests(updated);
+    if (user?.role === Role.CEO || user?.role === Role.SUPERADMIN) {
+      const requestToUpdate = updated.find(req => req.id === requestId);
+      if (requestToUpdate) {
+        void adminUpsertWfhRequest(requestToUpdate).catch(console.error);
+      }
+    } else {
+      void saveWfhRequests(updated);
+    }
     const targetRequest = wfhRequests.find(req => req.id === requestId);
     if (targetRequest) {
       addOrUpdateNotification({

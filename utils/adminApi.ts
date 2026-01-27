@@ -1,4 +1,4 @@
-import { AttendanceRecord, User } from '../types';
+import { AttendanceRecord, LeaveRequest, User, WorkFromHomeRequest } from '../types';
 
 const ADMIN_API_URL = import.meta.env.VITE_ADMIN_API_URL || '';
 const ADMIN_API_SECRET = import.meta.env.VITE_ADMIN_API_SECRET || '';
@@ -27,6 +27,18 @@ export const adminUpsertAttendanceRecord = (record: AttendanceRecord) =>
 
 export const adminDeleteAttendanceRecord = (recordId: string) =>
   adminRequest('/attendance/delete', { id: recordId });
+
+export const adminFetchLeaves = () =>
+  adminRequest<{ data: LeaveRequest[] }>('/leaves/list', {});
+
+export const adminUpsertLeave = (leave: LeaveRequest) =>
+  adminRequest('/leaves/upsert', { leave });
+
+export const adminFetchWfhRequests = () =>
+  adminRequest<{ data: WorkFromHomeRequest[] }>('/wfh/list', {});
+
+export const adminUpsertWfhRequest = (request: WorkFromHomeRequest) =>
+  adminRequest('/wfh/upsert', { request });
 
 export const adminUpsertUser = (user: User) =>
   adminRequest('/users/upsert', { user });

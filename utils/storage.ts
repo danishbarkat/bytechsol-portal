@@ -225,6 +225,15 @@ const recordsEquivalent = (a: AttendanceRecord, b: AttendanceRecord) => (
   && normalizeOptionalNumber(a.overtimeHours) === normalizeOptionalNumber(b.overtimeHours)
 );
 
+const LOCAL_EDIT_TTL_MS = 5 * 60 * 1000;
+
+const isLocalEditFresh = (value?: string) => {
+  if (!value) return false;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return false;
+  return Date.now() - parsed <= LOCAL_EDIT_TTL_MS;
+};
+
 const mergeRecords = (local: AttendanceRecord[], remote: AttendanceRecord[]) => {
   let changed = false;
   let shouldSync = false;
@@ -248,9 +257,14 @@ const mergeRecords = (local: AttendanceRecord[], remote: AttendanceRecord[]) => 
         changed = true;
         return;
       }
-      merged.set(record.id, { ...remoteRecord, ...record });
+      if (isLocalEditFresh(record.localUpdatedAt)) {
+        merged.set(record.id, { ...remoteRecord, ...record });
+        changed = true;
+        shouldSync = true;
+        return;
+      }
+      merged.set(record.id, remoteRecord);
       changed = true;
-      shouldSync = true;
       return;
     }
     if (!recordsEquivalent(record, remoteRecord)) {

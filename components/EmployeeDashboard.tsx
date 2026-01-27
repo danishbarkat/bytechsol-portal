@@ -499,7 +499,9 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const shiftDate = getShiftDateString(currentTime, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
   const hasShiftRecord = records.some(r => r.userId === user.id && r.date === shiftDate);
   const shiftLocked = hasShiftRecord && !activeRecord;
-  const myLeaves = leaves.filter(l => l.userId === user.id).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+  const myLeaves = leaves
+    .filter(l => l.userId === user.id && !l.id.startsWith('auto-absence:'))
+    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
   const myWfhRequests = wfhRequests.filter(r => r.userId === user.id).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
   const todayStr = getLocalDateString(new Date());
   const isWfhToday = myWfhRequests.some(req =>

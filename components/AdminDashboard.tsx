@@ -626,6 +626,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
   const visibleRecords = isSuperadmin ? records : records.filter(isRecordVisible);
   const visibleLeaves = isSuperadmin ? leaves : leaves.filter(l => visibleUserIds.has(l.userId));
+  const visibleLeaveRequests = visibleLeaves.filter(l => !l.id.startsWith('auto-absence:'));
   const visibleWfh = isSuperadmin ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));
   const selectedEmployee = sortedVisibleUsers.find(emp => emp.id === selectedEmp) || null;
   const selectedEmployeeId = selectedEmployee?.employeeId ? normalizeEmployeeId(selectedEmployee.employeeId) : '';
@@ -1571,7 +1572,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="grid grid-cols-1 gap-6">
-            {visibleLeaves.length === 0 ? <div className="glass-card rounded-[2rem] p-20 text-center font-black text-slate-300 uppercase tracking-widest">No Leave Records Found</div> : visibleLeaves.map(l => (
+            {visibleLeaveRequests.length === 0 ? <div className="glass-card rounded-[2rem] p-20 text-center font-black text-slate-300 uppercase tracking-widest">No Leave Records Found</div> : visibleLeaveRequests.map(l => (
               <div key={l.id} className="glass-card rounded-[2rem] p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-3">

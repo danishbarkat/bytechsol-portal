@@ -373,6 +373,12 @@ const App: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [requestEmployeeId, setRequestEmployeeId] = useState('');
+  const [requestName, setRequestName] = useState('');
+  const [requestReason, setRequestReason] = useState('');
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestFeedback, setRequestFeedback] = useState<string | null>(null);
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [essProfiles, setEssProfiles] = useState<ESSProfile[]>([]);
@@ -400,6 +406,15 @@ const App: React.FC = () => {
   useEffect(() => {
     usersRef.current = users;
   }, [users]);
+
+  useEffect(() => {
+    if (!requestEmployeeId.trim() || requestName.trim()) return;
+    const normalizedId = normalizeEmployeeId(requestEmployeeId);
+    const targetUser = users.find(u => normalizeEmployeeId(u.employeeId || '') === normalizedId);
+    if (targetUser?.name) {
+      setRequestName(targetUser.name);
+    }
+  }, [requestEmployeeId, requestName, users]);
   const addOrUpdateNotification = useCallback((nextNotification: AppNotification, forceUnread = false) => {
     setNotifications(prev => {
       const index = prev.findIndex(n => n.id === nextNotification.id);
@@ -695,6 +710,109 @@ const App: React.FC = () => {
       req.status === 'Approved' &&
       isDateInRange(dateStr, req.startDate, req.endDate)
     );
+
+  const normalizePersonName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
+
+  const resolveRequestUser = () => {
+    const normalizedId = normalizeEmployeeId(requestEmployeeId);
+    if (!requestEmployeeId.trim()) {
+      return { error: 'Employee ID is required.' };
+    }
+    const targetUser = users.find(u => normalizeEmployeeId(u.employeeId || '') === normalizedId);
+    if (!targetUser) {
+      return { error: 'Employee not found.' };
+    }
+    if (!requestName.trim()) {
+      return { error: 'Name is required.' };
+    }
+    const inputName = normalizePersonName(requestName);
+    const storedName = normalizePersonName(targetUser.name || '');
+    if (storedName && inputName !== storedName) {
+      return { error: 'Name does not match employee ID.' };
+    }
+    return { user: targetUser };
+  };
+
+  const submitRemoteAccessRequest = () => {
+    setRequestError(null);
+    setRequestFeedback(null);
+    const reason = requestReason.trim();
+    if (!reason) {
+      setRequestError('Reason is required.');
+      return;
+    }
+    const result = resolveRequestUser();
+    if ('error' in result) {
+      setRequestError(result.error || 'Invalid request.');
+      return;
+    }
+    const targetUser = result.user;
+    const todayStr = getLocalDateString(new Date());
+    if (isWfhApprovedForUser(targetUser.id, todayStr)) {
+      setRequestFeedback('WFH already approved for today.');
+      return;
+    }
+    const newRequest: WorkFromHomeRequest = {
+      id: Math.random().toString(36).substr(2, 9),
+      userId: targetUser.id,
+      userName: targetUser.name,
+      startDate: todayStr,
+      endDate: todayStr,
+      reason,
+      status: 'Pending',
+      submittedAt: new Date().toISOString()
+    };
+    const updated = [...wfhRequests, newRequest];
+    setWfhRequests(updated);
+    setRequestSubmitting(true);
+    Promise.resolve(saveWfhRequests(updated))
+      .finally(() => setRequestSubmitting(false));
+    setRequestFeedback('WFH access request submitted for today.');
+    setRequestReason('');
+  };
+
+  const submitLeaveRequestFromLogin = () => {
+    setRequestError(null);
+    setRequestFeedback(null);
+    const reason = requestReason.trim();
+    if (!reason) {
+      setRequestError('Reason is required.');
+      return;
+    }
+    const result = resolveRequestUser();
+    if ('error' in result) {
+      setRequestError(result.error || 'Invalid request.');
+      return;
+    }
+    const targetUser = result.user;
+    const todayStr = getLocalDateString(new Date());
+    const leaveMonth = new Date(todayStr);
+    const paidLeavesThisMonth = leaves.filter(l =>
+      l.userId === targetUser.id &&
+      (l.isPaid ?? true) &&
+      l.status !== 'Cancelled' &&
+      isSameMonth(l.startDate, leaveMonth)
+    ).length;
+    const isPaid = paidLeavesThisMonth < 1;
+    const newLeave: LeaveRequest = {
+      id: Math.random().toString(36).substr(2, 9),
+      userId: targetUser.id,
+      userName: targetUser.name,
+      startDate: todayStr,
+      endDate: todayStr,
+      reason,
+      status: 'Pending',
+      submittedAt: new Date().toISOString(),
+      isPaid
+    };
+    const updated = [...leaves, newLeave];
+    setLeaves(updated);
+    setRequestSubmitting(true);
+    Promise.resolve(saveLeaves(updated))
+      .finally(() => setRequestSubmitting(false));
+    setRequestFeedback('Leave request submitted for today.');
+    setRequestReason('');
+  };
 
   useEffect(() => {
     if (users.length === 0) return;
@@ -1205,6 +1323,93 @@ const App: React.FC = () => {
               <button type="submit" className="w-full premium-gradient text-white py-5 rounded-2xl font-black text-lg shadow-xl hover:opacity-90 transition-all">Authorize Login</button>
             </form>
 
+            {ipStatus === 'blocked' && (
+              <div className="rounded-[2.5rem] bg-slate-50 border border-slate-100 p-6 space-y-4">
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Emergency Requests</p>
+                  <p className="text-[10px] font-bold text-slate-500">Send a WFH access or leave request for today.</p>
+                </div>
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label htmlFor="request-employee-id" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label>
+                    <div className="flex items-center w-full px-4 py-3 rounded-2xl bg-white border-2 border-transparent focus-within:border-blue-500 outline-none font-bold text-slate-800 transition-all">
+                      <span className="text-slate-400 font-black mr-2">BS-</span>
+                      <input
+                        id="request-employee-id"
+                        name="requestEmployeeId"
+                        type="text"
+                        value={requestEmployeeId}
+                        onChange={e => {
+                          setRequestEmployeeId(e.target.value);
+                          setRequestError(null);
+                          setRequestFeedback(null);
+                        }}
+                        className="flex-1 bg-transparent outline-none font-bold text-slate-800"
+                        placeholder="XXXX001"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="request-name" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Name</label>
+                    <input
+                      id="request-name"
+                      name="requestName"
+                      type="text"
+                      value={requestName}
+                      onChange={e => {
+                        setRequestName(e.target.value);
+                        setRequestError(null);
+                        setRequestFeedback(null);
+                      }}
+                      className="w-full px-4 py-3 rounded-2xl bg-white border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 transition-all"
+                      placeholder="Employee name"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="request-reason" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Reason</label>
+                    <textarea
+                      id="request-reason"
+                      name="requestReason"
+                      value={requestReason}
+                      onChange={e => {
+                        setRequestReason(e.target.value);
+                        setRequestError(null);
+                        setRequestFeedback(null);
+                      }}
+                      className="w-full bg-white border-2 border-transparent focus:border-blue-500 p-3 rounded-2xl text-xs font-bold outline-none h-20 resize-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={submitRemoteAccessRequest}
+                      disabled={requestSubmitting}
+                      className="w-full bg-slate-900 text-white py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all disabled:opacity-60"
+                    >
+                      Request WFH Access
+                    </button>
+                    <button
+                      type="button"
+                      onClick={submitLeaveRequestFromLogin}
+                      disabled={requestSubmitting}
+                      className="w-full bg-blue-600 text-white py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-blue-500 transition-all disabled:opacity-60"
+                    >
+                      Request Leave
+                    </button>
+                  </div>
+                  {requestError && (
+                    <p className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-100 px-3 py-2 rounded-xl text-center">
+                      {requestError}
+                    </p>
+                  )}
+                  {requestFeedback && (
+                    <p className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl text-center">
+                      {requestFeedback}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

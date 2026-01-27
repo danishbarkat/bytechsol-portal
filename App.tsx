@@ -28,6 +28,12 @@ import {
   upsertAttendanceRecord,
   updateCredentialsByEmployeeId
 } from './utils/storage';
+import {
+  adminUpsertAttendanceRecord,
+  adminDeleteAttendanceRecord,
+  adminUpsertUser,
+  adminDeleteUser
+} from './utils/adminApi';
 import { isSupabaseConfigured } from './utils/supabase';
 import { addDaysToDateString, buildZonedISOString, getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes, getZonedNowISOString } from './utils/dates';
 import Layout from './components/Layout';
@@ -982,7 +988,11 @@ const App: React.FC = () => {
       saveRecordsLocal(newRecords);
       return newRecords;
     });
-    void upsertAttendanceRecord(updatedRecord);
+    if (user?.role === Role.SUPERADMIN) {
+      void adminUpsertAttendanceRecord(updatedRecord).catch(console.error);
+    } else {
+      void upsertAttendanceRecord(updatedRecord);
+    }
   };
 
   const handleDeleteRecord = (recordId: string) => {
@@ -991,7 +1001,11 @@ const App: React.FC = () => {
       saveRecordsLocal(updated);
       return updated;
     });
-    void deleteAttendanceRecord(recordId);
+    if (user?.role === Role.SUPERADMIN) {
+      void adminDeleteAttendanceRecord(recordId).catch(console.error);
+    } else {
+      void deleteAttendanceRecord(recordId);
+    }
   };
 
   const handleUpdateESS = (profile: ESSProfile) => {
@@ -1022,6 +1036,9 @@ const App: React.FC = () => {
       void saveUsers(updated);
       return updated;
     });
+    if (user?.role === Role.SUPERADMIN) {
+      void adminUpsertUser(newUser).catch(console.error);
+    }
   };
 
   const handleUpdateUser = (updatedUser: User) => {
@@ -1036,7 +1053,9 @@ const App: React.FC = () => {
     if (user?.id === updatedUser.id) {
       setUser(updatedUser);
     }
-    if (updatedUser.employeeId) {
+    if (user?.role === Role.SUPERADMIN) {
+      void adminUpsertUser(updatedUser).catch(console.error);
+    } else if (updatedUser.employeeId) {
       void updateCredentialsByEmployeeId(updatedUser.employeeId, updatedUser.password, updatedUser.pin ?? null);
     }
   };
@@ -1076,7 +1095,11 @@ const App: React.FC = () => {
       localStorage.removeItem(SAVED_SESSION_KEY);
       setUser(null);
     }
-    void deleteUserData(userId);
+    if (user?.role === Role.SUPERADMIN) {
+      void adminDeleteUser(userId).catch(console.error);
+    } else {
+      void deleteUserData(userId);
+    }
   };
 
   if (ipStatus === 'checking') {

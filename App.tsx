@@ -376,6 +376,8 @@ const App: React.FC = () => {
   const [requestEmployeeId, setRequestEmployeeId] = useState('');
   const [requestName, setRequestName] = useState('');
   const [requestReason, setRequestReason] = useState('');
+  const [requestStartDate, setRequestStartDate] = useState(() => getLocalDateString(new Date()));
+  const [requestEndDate, setRequestEndDate] = useState(() => getLocalDateString(new Date()));
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestFeedback, setRequestFeedback] = useState<string | null>(null);
   const [requestSubmitting, setRequestSubmitting] = useState(false);
@@ -747,8 +749,10 @@ const App: React.FC = () => {
       return;
     }
     const targetUser = result.user;
+    const safeStart = requestStartDate <= requestEndDate ? requestStartDate : requestEndDate;
+    const safeEnd = requestStartDate <= requestEndDate ? requestEndDate : requestStartDate;
     const todayStr = getLocalDateString(new Date());
-    if (isWfhApprovedForUser(targetUser.id, todayStr)) {
+    if (isWfhApprovedForUser(targetUser.id, todayStr) && safeStart <= todayStr && safeEnd >= todayStr) {
       setRequestFeedback('WFH already approved for today.');
       return;
     }
@@ -756,8 +760,8 @@ const App: React.FC = () => {
       id: Math.random().toString(36).substr(2, 9),
       userId: targetUser.id,
       userName: targetUser.name,
-      startDate: todayStr,
-      endDate: todayStr,
+      startDate: safeStart,
+      endDate: safeEnd,
       reason,
       status: 'Pending',
       submittedAt: new Date().toISOString()
@@ -767,7 +771,7 @@ const App: React.FC = () => {
     setRequestSubmitting(true);
     Promise.resolve(saveWfhRequests(updated))
       .finally(() => setRequestSubmitting(false));
-    setRequestFeedback('WFH access request submitted for today.');
+    setRequestFeedback('WFH access request submitted.');
     setRequestReason('');
   };
 
@@ -785,8 +789,9 @@ const App: React.FC = () => {
       return;
     }
     const targetUser = result.user;
-    const todayStr = getLocalDateString(new Date());
-    const leaveMonth = new Date(todayStr);
+    const safeStart = requestStartDate <= requestEndDate ? requestStartDate : requestEndDate;
+    const safeEnd = requestStartDate <= requestEndDate ? requestEndDate : requestStartDate;
+    const leaveMonth = new Date(safeStart);
     const paidLeavesThisMonth = leaves.filter(l =>
       l.userId === targetUser.id &&
       (l.isPaid ?? true) &&
@@ -798,8 +803,8 @@ const App: React.FC = () => {
       id: Math.random().toString(36).substr(2, 9),
       userId: targetUser.id,
       userName: targetUser.name,
-      startDate: todayStr,
-      endDate: todayStr,
+      startDate: safeStart,
+      endDate: safeEnd,
       reason,
       status: 'Pending',
       submittedAt: new Date().toISOString(),
@@ -810,7 +815,7 @@ const App: React.FC = () => {
     setRequestSubmitting(true);
     Promise.resolve(saveLeaves(updated))
       .finally(() => setRequestSubmitting(false));
-    setRequestFeedback('Leave request submitted for today.');
+    setRequestFeedback('Leave request submitted.');
     setRequestReason('');
   };
 
@@ -1329,6 +1334,36 @@ const App: React.FC = () => {
                   <p className="text-[10px] font-bold text-slate-500">Send a WFH access or leave request for today.</p>
                 </div>
                 <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label htmlFor="request-start" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Start Date</label>
+                      <input
+                        id="request-start"
+                        type="date"
+                        value={requestStartDate}
+                        onChange={e => {
+                          setRequestStartDate(e.target.value);
+                          setRequestError(null);
+                          setRequestFeedback(null);
+                        }}
+                        className="w-full bg-white border-2 border-transparent focus:border-blue-500 p-3 rounded-2xl text-[10px] font-black outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="request-end" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">End Date</label>
+                      <input
+                        id="request-end"
+                        type="date"
+                        value={requestEndDate}
+                        onChange={e => {
+                          setRequestEndDate(e.target.value);
+                          setRequestError(null);
+                          setRequestFeedback(null);
+                        }}
+                        className="w-full bg-white border-2 border-transparent focus:border-blue-500 p-3 rounded-2xl text-[10px] font-black outline-none"
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-1">
                     <label htmlFor="request-employee-id" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label>
                     <div className="flex items-center w-full px-4 py-3 rounded-2xl bg-white border-2 border-transparent focus-within:border-blue-500 outline-none font-bold text-slate-800 transition-all">

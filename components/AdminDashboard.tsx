@@ -451,6 +451,7 @@ interface AdminDashboardProps {
   onCheckIn: () => void;
   onCheckOut: () => void;
   isWifiConnected: boolean;
+  isCheckinOverride?: boolean;
   onUpdateRecord: (updatedRecord: AttendanceRecord) => void;
   onDeleteRecord: (recordId: string) => void;
   onUpdateChecklist: (checklist: UserChecklist) => void;
@@ -474,6 +475,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onCheckIn,
   onCheckOut,
   isWifiConnected,
+  isCheckinOverride = false,
   onUpdateRecord,
   onDeleteRecord,
   onUpdateChecklist,
@@ -755,6 +757,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return earlyMinutes + lateMinutes;
   };
 
+  const getEarlyCheckoutMinutesForRecord = (record: AttendanceRecord) => {
+    if (!record.checkOut) return 0;
+    const checkOutDate = new Date(record.checkOut);
+    const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
+    const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
+      ? checkOutRawMinutes + 24 * 60
+      : checkOutRawMinutes;
+    if (checkOutMinutes >= earlyCheckoutCutoff) return 0;
+    return Math.max(0, earlyCheckoutCutoff - checkOutMinutes);
+  };
+
   const now = new Date();
   const buildSalarySnapshot = (targetUser: User | null) => {
     if (!targetUser) return null;
@@ -764,13 +777,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const monthRecords = records.filter(r => r.userId === targetUser.id && resolveRecordDate(r).startsWith(monthKey));
     const overtimeMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getOvertimeMinutesForRecord(record), 0);
     const overtimeHoursThisMonth = overtimeMinutesThisMonth / 60;
+    const earlyCheckoutMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getEarlyCheckoutMinutesForRecord(record), 0);
+    const earlyCheckoutHoursThisMonth = earlyCheckoutMinutesThisMonth / 60;
     const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / shiftHours : 0;
     const overtimePay = targetUser.role === Role.HR ? 0 : overtimeHoursThisMonth * hourlyRate;
+    const earlyCheckoutDeduction = earlyCheckoutHoursThisMonth * hourlyRate;
+    const absentDaysThisMonth = leaves
+      .filter(l => l.userId === targetUser.id && l.id.startsWith('auto-absence:') && l.status === 'Approved' && l.startDate.startsWith(monthKey))
+      .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, now), 0);
     const unpaidLeaveDays = leaves
       .filter(l => l.userId === targetUser.id && l.status === 'Approved' && l.isPaid === false)
       .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, now), 0);
     const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
-    const taxableSalary = Math.max(0, monthlySalary - leaveDeduction);
+    const taxableSalary = Math.max(0, monthlySalary - leaveDeduction - earlyCheckoutDeduction);
     const monthlyTax = calculateMonthlyTax(taxableSalary);
     const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
     const netPay = salaryAfterTax + overtimePay;
@@ -780,6 +799,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       monthlySalary,
       overtimeHoursThisMonth,
       overtimePay,
+      earlyCheckoutHoursThisMonth,
+      earlyCheckoutDeduction,
+      absentDaysThisMonth,
       unpaidLeaveDays,
       leaveDeduction,
       taxableSalary,
@@ -901,6 +923,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const myShiftDate = getShiftDateString(new Date(), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
   const hasMyShiftRecord = records.some(r => r.userId === user.id && r.date === myShiftDate);
   const shiftLocked = hasMyShiftRecord && !myRecord;
+  const canTrack = isWifiConnected || isCheckinOverride;
   const isSameMonth = (dateStr: string, target: Date) => {
     const date = new Date(dateStr);
     if (Number.isNaN(date.getTime())) {
@@ -1205,6 +1228,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <tr><td>Overtime (${snapshot.overtimeHoursThisMonth.toFixed(2)} hrs)</td><td>${formatCurrency(snapshot.overtimePay)}</td></tr>
               <tr><th>Deductions</th><th>Amount</th></tr>
               <tr><td>Unpaid Leave (${snapshot.unpaidLeaveDays} days)</td><td>- ${formatCurrency(snapshot.leaveDeduction)}</td></tr>
+              <tr><td>Early Checkout (${snapshot.earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</td><td>- ${formatCurrency(snapshot.earlyCheckoutDeduction)}</td></tr>
+              <tr><td>Absents (auto) (${snapshot.absentDaysThisMonth} days)</td><td>Included</td></tr>
               <tr><td>Tax (PK progressive)</td><td>- ${formatCurrency(snapshot.monthlyTax)}</td></tr>
               <tr><td class="total">Taxable Salary</td><td class="total">${formatCurrency(snapshot.taxableSalary)}</td></tr>
               <tr><td class="total">Salary After Tax</td><td class="total">${formatCurrency(snapshot.salaryAfterTax)}</td></tr>
@@ -1239,7 +1264,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="glass-card rounded-[2rem] p-6 border-2 border-white flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center space-x-4">
-              <div className={`w-3 h-3 rounded-full ${isWifiConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
+              <div className={`w-3 h-3 rounded-full ${canTrack ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
               <div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Personal Attendance (HR)</p>
                 <p className="font-black text-slate-900">
@@ -1278,7 +1303,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
           <button
             onClick={myRecord ? onCheckOut : onCheckIn}
-            disabled={!isWifiConnected || shiftLocked}
+            disabled={!canTrack || shiftLocked}
             className={`px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg transition-all ${myRecord ? 'bg-rose-600 text-white hover:bg-rose-700' : 'premium-gradient text-white hover:opacity-90 disabled:opacity-30'}`}
           >
             {myRecord ? 'Check Out' : shiftLocked ? 'Shift Done' : 'Check In Now'}
@@ -1811,6 +1836,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div className="flex items-center justify-between">
                               <span className="font-bold text-slate-500">Unpaid Leaves ({snapshot.unpaidLeaveDays} days)</span>
                               <span className="font-black text-rose-500">- {formatCurrency(snapshot.leaveDeduction)}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-500">Absents (auto)</span>
+                              <span className="font-black text-slate-700">{snapshot.absentDaysThisMonth} days</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-500">Early Checkout ({snapshot.earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</span>
+                              <span className="font-black text-rose-500">- {formatCurrency(snapshot.earlyCheckoutDeduction)}</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="font-bold text-slate-500">Overtime ({snapshot.overtimeHoursThisMonth.toFixed(2)} hrs)</span>

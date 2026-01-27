@@ -116,6 +116,7 @@ interface EmployeeDashboardProps {
   onCheckIn: () => void;
   onCheckOut: () => void;
   isWifiConnected: boolean;
+  isCheckinOverride?: boolean;
   onSubmitLeave: (start: string, end: string, reason: string) => void;
   onSubmitWfhRequest: (reason: string, startDate: string, endDate: string) => void;
   onUpdateESS: (profile: ESSProfile) => void;
@@ -134,6 +135,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   onCheckIn,
   onCheckOut,
   isWifiConnected,
+  isCheckinOverride = false,
   onSubmitLeave,
   onSubmitWfhRequest,
   onUpdateESS,
@@ -505,7 +507,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   );
   const weeklyOT = calculateWeeklyOvertime(user.id, records);
   const workMode = user.workMode || 'Onsite';
-  const canTrack = workMode === 'Remote' || isWifiConnected || isWfhToday;
+  const canTrack = workMode === 'Remote' || isWifiConnected || isWfhToday || isCheckinOverride;
   const salaryHidden = Boolean(user.salaryHidden);
   const normalizedEmployeeId = user.employeeId ? normalizeEmployeeId(user.employeeId) : '';
   const employeeRecords = records.filter(r => {
@@ -582,19 +584,37 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     return earlyMinutes + lateMinutes;
   };
 
+  const getEarlyCheckoutMinutesForRecord = (record: AttendanceRecord) => {
+    if (!record.checkOut) return 0;
+    const checkOutDate = new Date(record.checkOut);
+    const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
+    const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
+      ? checkOutRawMinutes + 24 * 60
+      : checkOutRawMinutes;
+    if (checkOutMinutes >= earlyCheckoutCutoff) return 0;
+    return Math.max(0, earlyCheckoutCutoff - checkOutMinutes);
+  };
+
   const monthLabel = currentTime.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const monthRecords = records.filter(r => r.userId === user.id && isSameMonth(resolveRecordDate(r), currentTime));
   const overtimeMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getOvertimeMinutesForRecord(record), 0);
   const overtimeHoursThisMonth = overtimeMinutesThisMonth / 60;
+  const earlyCheckoutMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getEarlyCheckoutMinutesForRecord(record), 0);
+  const earlyCheckoutHoursThisMonth = earlyCheckoutMinutesThisMonth / 60;
   const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / shiftHours : 0;
   const overtimePay = overtimeHoursThisMonth * hourlyRate;
+  const earlyCheckoutDeduction = earlyCheckoutHoursThisMonth * hourlyRate;
+  const absentDaysThisMonth = leaves
+    .filter(l => l.userId === user.id && l.id.startsWith('auto-absence:') && l.status === 'Approved' && isSameMonth(l.startDate, currentTime))
+    .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, currentTime), 0);
   const unpaidLeaveDays = leaves
     .filter(l => l.userId === user.id && l.status === 'Approved' && l.isPaid === false)
     .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, currentTime), 0);
   const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
   const baseAfterLeave = Math.max(0, monthlySalary - leaveDeduction);
-  const monthlyTax = calculateMonthlyTax(baseAfterLeave);
-  const salaryAfterTax = Math.max(0, baseAfterLeave - monthlyTax);
+  const taxableSalary = Math.max(0, baseAfterLeave - earlyCheckoutDeduction);
+  const monthlyTax = calculateMonthlyTax(taxableSalary);
+  const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
   const netPay = salaryAfterTax + overtimePay;
 
   const downloadSalarySlip = () => {
@@ -632,8 +652,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
               <tr><td>Overtime (${overtimeHoursThisMonth.toFixed(2)} hrs)</td><td>${formatCurrency(overtimePay)}</td></tr>
               <tr><th>Deductions</th><th>Amount</th></tr>
               <tr><td>Unpaid Leave (${unpaidLeaveDays} days)</td><td>- ${formatCurrency(leaveDeduction)}</td></tr>
+              <tr><td>Early Checkout (${earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</td><td>- ${formatCurrency(earlyCheckoutDeduction)}</td></tr>
+              <tr><td>Absents (auto) (${absentDaysThisMonth} days)</td><td>Included</td></tr>
               <tr><td>Tax (PK progressive)</td><td>- ${formatCurrency(monthlyTax)}</td></tr>
-              <tr><td class="total">Taxable Salary</td><td class="total">${formatCurrency(baseAfterLeave)}</td></tr>
+              <tr><td class="total">Taxable Salary</td><td class="total">${formatCurrency(taxableSalary)}</td></tr>
               <tr><td class="total">Salary After Tax</td><td class="total">${formatCurrency(salaryAfterTax)}</td></tr>
               <tr><td class="total">Net Pay (with overtime)</td><td class="total">${formatCurrency(netPay)}</td></tr>
             </table>
@@ -1324,12 +1346,20 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                       <span className="font-black text-rose-500">- {formatCurrency(leaveDeduction)}</span>
                     </div>
                     <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-500">Absents (auto)</span>
+                      <span className="font-black text-slate-700">{absentDaysThisMonth} days</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-500">Early Checkout ({earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</span>
+                      <span className="font-black text-rose-500">- {formatCurrency(earlyCheckoutDeduction)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
                       <span className="font-bold text-slate-500">Overtime ({overtimeHoursThisMonth.toFixed(2)} hrs)</span>
                       <span className="font-black text-emerald-600">+ {formatCurrency(overtimePay)}</span>
                     </div>
                     <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
                       <span className="font-bold text-slate-600">Taxable Salary</span>
-                      <span className="font-black text-slate-900">{formatCurrency(baseAfterLeave)}</span>
+                      <span className="font-black text-slate-900">{formatCurrency(taxableSalary)}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-slate-500">Tax (PK progressive)</span>

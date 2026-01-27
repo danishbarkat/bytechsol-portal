@@ -29,7 +29,7 @@ import {
   updateCredentialsByEmployeeId
 } from './utils/storage';
 import { isSupabaseConfigured } from './utils/supabase';
-import { addDaysToDateString, getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes, getZonedNowISOString } from './utils/dates';
+import { addDaysToDateString, buildZonedISOString, getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes, getZonedNowISOString } from './utils/dates';
 import Layout from './components/Layout';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeeDashboard from './components/EmployeeDashboard';
@@ -97,9 +97,94 @@ const computeOvertimeHours = (checkInIso: string, checkOutIso: string): number =
   return overtimeMinutes > 0 ? overtimeMinutes / 60 : 0;
 };
 
-const normalizeOvertimeRecords = (list: AttendanceRecord[]) => {
+const getShiftEndISOString = (shiftDate: string): string => {
+  if (!shiftDate) return '';
+  const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
+  const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+  const endDate = endMinutes <= startMinutes ? addDaysToDateString(shiftDate, 1) : shiftDate;
+  return buildZonedISOString(endDate, APP_CONFIG.SHIFT_END);
+};
+
+const getRecordUserRole = (record: AttendanceRecord, userList: User[]): Role | null => {
+  if (userList.length === 0) return null;
+  const direct = userList.find(u => u.id === record.userId);
+  if (direct) return direct.role;
+  const normalizedId = normalizeEmployeeId(String(record.userId || ''));
+  const byEmployeeId = userList.find(u => u.employeeId && normalizeEmployeeId(u.employeeId) === normalizedId);
+  if (byEmployeeId) return byEmployeeId.role;
+  const recordName = (record.userName || '').trim().toLowerCase();
+  if (recordName) {
+    const byName = userList.find(u => (u.name || '').trim().toLowerCase() === recordName);
+    if (byName) return byName.role;
+  }
+  return null;
+};
+
+const isAutoCheckoutExempt = (record: AttendanceRecord, userList: User[]): boolean => {
+  const exemptRoles = APP_CONFIG.AUTO_CHECKOUT_EXEMPT_ROLES || [];
+  if (exemptRoles.length === 0) return false;
+  const role = getRecordUserRole(record, userList);
+  if (!role) return true;
+  return exemptRoles.includes(role);
+};
+
+const autoCheckoutStaleRecords = (list: AttendanceRecord[], userList: User[]) => {
+  if (!APP_CONFIG.AUTO_CHECKOUT_ENABLED) {
+    return { normalized: list, changed: false };
+  }
+  const currentShiftDate = getShiftDateString(new Date(), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+  if (!currentShiftDate) {
+    return { normalized: list, changed: false };
+  }
+  const latestOpenByUser = new Map<string, AttendanceRecord>();
+  list.forEach(record => {
+    if (!record.checkIn || record.checkOut) return;
+    if (isAutoCheckoutExempt(record, userList)) return;
+    const key = record.userId || record.userName || record.id;
+    const existing = latestOpenByUser.get(key);
+    if (!existing) {
+      latestOpenByUser.set(key, record);
+      return;
+    }
+    const existingTime = new Date(existing.checkIn).getTime();
+    const recordTime = new Date(record.checkIn).getTime();
+    if (Number.isFinite(recordTime) && (!Number.isFinite(existingTime) || recordTime > existingTime)) {
+      latestOpenByUser.set(key, record);
+    }
+  });
+
   let changed = false;
   const normalized = list.map(record => {
+    if (!record.checkIn || record.checkOut) return record;
+    if (isAutoCheckoutExempt(record, userList)) return record;
+    const key = record.userId || record.userName || record.id;
+    const latestOpen = latestOpenByUser.get(key);
+    const recordShiftDate = getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    if (!recordShiftDate) return record;
+    const isSuperseded = latestOpen && latestOpen.id !== record.id;
+    const isStale = recordShiftDate < currentShiftDate;
+    if (!isSuperseded && !isStale) return record;
+    const checkOutIso = getShiftEndISOString(recordShiftDate);
+    if (!checkOutIso) return record;
+    const totalHours = computeTotalHours(record.checkIn, checkOutIso);
+    const overtimeHours = computeOvertimeHours(record.checkIn, checkOutIso);
+    changed = true;
+    return {
+      ...record,
+      checkOut: checkOutIso,
+      totalHours,
+      overtimeHours: overtimeHours > 0 ? overtimeHours : undefined
+    };
+  });
+  return { normalized, changed };
+};
+
+const normalizeOvertimeRecords = (list: AttendanceRecord[], userList: User[] = []) => {
+  const { normalized: autoNormalized, changed: autoChanged } = autoCheckoutStaleRecords(list, userList);
+  let changed = autoChanged;
+  const normalized = autoNormalized.map(record => {
     if (!record.checkIn || !record.checkOut) return record;
     const computedOvertime = computeOvertimeHours(record.checkIn, record.checkOut);
     const nextOvertime = computedOvertime > 0 ? computedOvertime : undefined;
@@ -292,6 +377,12 @@ const App: React.FC = () => {
   const [ipStatus, setIpStatus] = useState<'checking' | 'allowed' | 'blocked'>('checking');
   const [publicIp, setPublicIp] = useState<string | null>(null);
   const remoteLoginIds = (APP_CONFIG.REMOTE_LOGIN_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
+  const checkinOverrideIds = (APP_CONFIG.CHECKIN_OVERRIDE_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
+  const usersRef = useRef<User[]>([]);
+
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
   const addOrUpdateNotification = useCallback((nextNotification: AppNotification, forceUnread = false) => {
     setNotifications(prev => {
       const index = prev.findIndex(n => n.id === nextNotification.id);
@@ -340,7 +431,7 @@ const App: React.FC = () => {
         loadWfhRequests()
       ]);
       if (!active) return;
-      const { normalized, changed } = normalizeOvertimeRecords(recordsData);
+      const { normalized, changed } = normalizeOvertimeRecords(recordsData, usersData);
       setRecords(normalized);
       if (changed) {
         void saveRecords(normalized);
@@ -514,7 +605,7 @@ const App: React.FC = () => {
     const refreshRecords = async () => {
       const data = await fetchRecordsRemote();
       if (!active) return;
-      const { normalized, changed } = normalizeOvertimeRecords(data);
+      const { normalized, changed } = normalizeOvertimeRecords(data, usersRef.current);
       setRecords(normalized);
       if (changed) {
         void saveRecords(normalized);
@@ -1094,6 +1185,9 @@ const App: React.FC = () => {
   const currentUserNotifications = notifications
     .filter(n => n.userId === user.id)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const isCheckinOverrideUser = Boolean(
+    user?.employeeId && checkinOverrideIds.includes(normalizeEmployeeId(user.employeeId))
+  );
 
   return (
     <Layout
@@ -1114,6 +1208,7 @@ const App: React.FC = () => {
           onCheckIn={handleCheckIn}
           onCheckOut={handleCheckOut}
           isWifiConnected={isWifiConnected}
+          isCheckinOverride={isCheckinOverrideUser}
           onSubmitLeave={handleSubmitLeave}
           onSubmitWfhRequest={handleSubmitWfhRequest}
           onUpdateESS={handleUpdateESS}
@@ -1134,6 +1229,7 @@ const App: React.FC = () => {
           onCheckIn={handleCheckIn}
           onCheckOut={handleCheckOut}
           isWifiConnected={isWifiConnected}
+          isCheckinOverride={isCheckinOverrideUser}
           onUpdateRecord={handleUpdateRecord}
           onDeleteRecord={handleDeleteRecord}
           onUpdateChecklist={handleUpdateChecklist}

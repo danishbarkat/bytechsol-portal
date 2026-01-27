@@ -207,52 +207,57 @@ const logSupabaseError = (scope: string, error: unknown) => {
   console.error(`[supabase] ${scope} failed`, error);
 };
 
+const normalizeOptionalString = (value: unknown) =>
+  value === undefined || value === null ? null : String(value);
+
+const normalizeOptionalNumber = (value: unknown) =>
+  Number.isFinite(Number(value)) ? Number(value) : null;
+
+const recordsEquivalent = (a: AttendanceRecord, b: AttendanceRecord) => (
+  a.id === b.id
+  && a.userId === b.userId
+  && a.userName === b.userName
+  && a.date === b.date
+  && a.checkIn === b.checkIn
+  && normalizeOptionalString(a.checkOut) === normalizeOptionalString(b.checkOut)
+  && normalizeOptionalNumber(a.totalHours) === normalizeOptionalNumber(b.totalHours)
+  && normalizeOptionalString(a.status) === normalizeOptionalString(b.status)
+  && normalizeOptionalNumber(a.overtimeHours) === normalizeOptionalNumber(b.overtimeHours)
+);
+
 const mergeRecords = (local: AttendanceRecord[], remote: AttendanceRecord[]) => {
   let changed = false;
+  let shouldSync = false;
   const merged = new Map<string, AttendanceRecord>();
-  local.forEach(record => {
+  remote.forEach(record => {
     if (!record.id) return;
     merged.set(record.id, record);
   });
-  remote.forEach(record => {
-    if (!record.id) return;
-    const existing = merged.get(record.id);
-    if (!existing) {
-      merged.set(record.id, record);
-      return;
-    }
-    if (existing.localUpdatedAt) {
-      merged.set(record.id, { ...record, ...existing });
-      return;
-    }
-    let resolved = { ...existing, ...record };
-    if (!record.checkOut && existing.checkOut) {
-      resolved = { ...resolved, checkOut: existing.checkOut, totalHours: existing.totalHours, overtimeHours: existing.overtimeHours };
-      changed = true;
-    } else if (record.checkOut && existing.checkOut) {
-      const remoteTime = Date.parse(record.checkOut);
-      const localTime = Date.parse(existing.checkOut);
-      if (Number.isFinite(localTime) && Number.isFinite(remoteTime) && localTime > remoteTime) {
-        resolved = { ...resolved, checkOut: existing.checkOut, totalHours: existing.totalHours, overtimeHours: existing.overtimeHours };
-        changed = true;
-      }
-    }
-    merged.set(record.id, resolved);
-  });
-  remote.forEach(record => {
-    if (!record.id) return;
-    if (!merged.has(record.id)) {
-      merged.set(record.id, record);
-    }
-  });
   local.forEach(record => {
     if (!record.id) return;
-    if (!merged.has(record.id)) {
+    const remoteRecord = merged.get(record.id);
+    if (!remoteRecord) {
       merged.set(record.id, record);
+      changed = true;
+      shouldSync = true;
+      return;
+    }
+    if (record.localUpdatedAt) {
+      if (recordsEquivalent(record, remoteRecord)) {
+        merged.set(record.id, remoteRecord);
+        changed = true;
+        return;
+      }
+      merged.set(record.id, { ...remoteRecord, ...record });
+      changed = true;
+      shouldSync = true;
+      return;
+    }
+    if (!recordsEquivalent(record, remoteRecord)) {
       changed = true;
     }
   });
-  return { merged: Array.from(merged.values()), changed };
+  return { merged: Array.from(merged.values()), changed, shouldSync };
 };
 
 export const loadRecords = async (): Promise<AttendanceRecord[]> => {
@@ -264,9 +269,9 @@ export const loadRecords = async (): Promise<AttendanceRecord[]> => {
     return local;
   }
   const mapped = data.map(mapAttendanceFromDb);
-  const { merged, changed } = mergeRecords(local, mapped);
+  const { merged, shouldSync } = mergeRecords(local, mapped);
   saveLocal(ATTENDANCE_KEY, merged);
-  if (changed) {
+  if (shouldSync) {
     void saveRecords(merged);
   }
   return merged;
@@ -461,9 +466,9 @@ export const fetchRecordsRemote = async (): Promise<AttendanceRecord[]> => {
     return local;
   }
   const mapped = data.map(mapAttendanceFromDb);
-  const { merged, changed } = mergeRecords(local, mapped);
+  const { merged, shouldSync } = mergeRecords(local, mapped);
   saveLocal(ATTENDANCE_KEY, merged);
-  if (changed) {
+  if (shouldSync) {
     void saveRecords(merged);
   }
   return merged;

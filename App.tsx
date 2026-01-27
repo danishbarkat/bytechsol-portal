@@ -1323,8 +1323,7 @@ const App: React.FC = () => {
               <button type="submit" className="w-full premium-gradient text-white py-5 rounded-2xl font-black text-lg shadow-xl hover:opacity-90 transition-all">Authorize Login</button>
             </form>
 
-            {ipStatus === 'blocked' && (
-              <div className="rounded-[2.5rem] bg-slate-50 border border-slate-100 p-6 space-y-4">
+            <div className="rounded-[2.5rem] bg-slate-50 border border-slate-100 p-6 space-y-4">
                 <div className="space-y-2">
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Emergency Requests</p>
                   <p className="text-[10px] font-bold text-slate-500">Send a WFH access or leave request for today.</p>
@@ -1409,7 +1408,6 @@ const App: React.FC = () => {
                   )}
                 </div>
               </div>
-            )}
           </div>
         </div>
       </div>

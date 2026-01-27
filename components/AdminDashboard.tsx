@@ -605,6 +605,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const canDeleteUsers = isSuperadmin || isCeo;
   const canResetPassword = Boolean(editingUser && editingUser.role !== Role.SUPERADMIN);
   const visibleUsers = users;
+  const rosterAvailable = visibleUsers.length > 0;
   const sortedVisibleUsers = [...visibleUsers].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   const workforceUsers = sortedVisibleUsers;
   const visibleUserIds = new Set(visibleUsers.map(u => u.id));
@@ -624,10 +625,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
     return false;
   };
-  const visibleRecords = isSuperadmin ? records : records.filter(isRecordVisible);
-  const visibleLeaves = isSuperadmin ? leaves : leaves.filter(l => visibleUserIds.has(l.userId));
+  const visibleRecords = isSuperadmin || !rosterAvailable ? records : records.filter(isRecordVisible);
+  const visibleLeaves = isSuperadmin || !rosterAvailable ? leaves : leaves.filter(l => visibleUserIds.has(l.userId));
   const visibleLeaveRequests = visibleLeaves.filter(l => !l.id.startsWith('auto-absence:'));
-  const visibleWfh = isSuperadmin ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));
+  const visibleWfh = isSuperadmin || !rosterAvailable ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));
+  const overtimeUsers = rosterAvailable
+    ? sortedVisibleUsers
+    : Array.from(
+      new Map(
+        visibleRecords
+          .filter(r => r.userId)
+          .map(r => [String(r.userId), { id: String(r.userId), name: r.userName || String(r.userId) }])
+      ).values()
+    );
   const selectedEmployee = sortedVisibleUsers.find(emp => emp.id === selectedEmp) || null;
   const selectedEmployeeId = selectedEmployee?.employeeId ? normalizeEmployeeId(selectedEmployee.employeeId) : '';
   const filteredAttendanceBase = selectedEmp === 'all'
@@ -1634,15 +1644,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="glass-card rounded-[2.5rem] p-8 border-b-4 border-blue-500">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Weekly OT Pool</p>
-              <h2 className="text-4xl font-black text-slate-900">{formatDuration(visibleUsers.reduce((sum, u) => sum + calculateWeeklyOvertime(u.id, visibleRecords), 0))}</h2>
+              <h2 className="text-4xl font-black text-slate-900">{formatDuration(overtimeUsers.reduce((sum, u) => sum + calculateWeeklyOvertime(u.id, visibleRecords), 0))}</h2>
             </div>
             <div className="glass-card rounded-[2.5rem] p-8 border-b-4 border-emerald-500">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Active OT Claims</p>
-              <h2 className="text-4xl font-black text-slate-900">{visibleUsers.filter(u => calculateWeeklyOvertime(u.id, visibleRecords) > 0).length} Employees</h2>
+              <h2 className="text-4xl font-black text-slate-900">{overtimeUsers.filter(u => calculateWeeklyOvertime(u.id, visibleRecords) > 0).length} Employees</h2>
             </div>
             <div className="glass-card rounded-[2.5rem] p-8 border-b-4 border-amber-500">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Avg. Weekly OT</p>
-              <h2 className="text-4xl font-black text-slate-900">{formatDuration(visibleUsers.reduce((sum, u) => sum + calculateWeeklyOvertime(u.id, visibleRecords), 0) / (visibleUsers.length || 1))}</h2>
+              <h2 className="text-4xl font-black text-slate-900">{formatDuration(overtimeUsers.reduce((sum, u) => sum + calculateWeeklyOvertime(u.id, visibleRecords), 0) / (overtimeUsers.length || 1))}</h2>
             </div>
           </div>
           <div className="glass-card rounded-[2.5rem]">
@@ -1657,7 +1667,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {sortedVisibleUsers.map(u => {
+                {overtimeUsers.map(u => {
                   const ot = calculateWeeklyOvertime(u.id, visibleRecords);
                   return (
                     <tr key={u.id}>

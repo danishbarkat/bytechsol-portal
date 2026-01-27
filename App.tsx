@@ -701,9 +701,13 @@ const App: React.FC = () => {
     return date >= start && date <= end;
   };
 
-  const isWeekend = (dateStr: string) => {
+  const isWorkingDay = (dateStr: string) => {
     const label = getWeekdayLabel(dateStr);
-    return label === 'Sat' || label === 'Sun';
+    const configured = APP_CONFIG.WORKING_DAYS;
+    const workingDays = Array.isArray(configured) && configured.length > 0
+      ? configured
+      : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    return workingDays.includes(label);
   };
 
   const isWfhApprovedForUser = (targetUserId: string, dateStr: string) =>
@@ -823,11 +827,18 @@ const App: React.FC = () => {
     if (users.length === 0) return;
     const todayStr = getLocalDateString(new Date());
     const targetDate = addDaysToDateString(todayStr, -1);
-    if (isWeekend(targetDate)) return;
+    if (!isWorkingDay(targetDate)) return;
     const newLeaves: LeaveRequest[] = [];
     users
       .filter(u => u.role !== Role.SUPERADMIN)
       .forEach(target => {
+        const monthKey = targetDate.slice(0, 7);
+        const allowance = APP_CONFIG.ABSENCE_ALLOWANCE_PER_MONTH ?? 0;
+        const autoAbsenceCount = leaves.filter(l =>
+          l.userId === target.id &&
+          l.id.startsWith('auto-absence:') &&
+          l.startDate.startsWith(monthKey)
+        ).length;
         const hasAttendance = records.some(r => r.userId === target.id && r.date === targetDate);
         if (hasAttendance) return;
         const hasLeave = leaves.some(l =>
@@ -849,7 +860,7 @@ const App: React.FC = () => {
           reason: 'Auto marked absence',
           status: 'Approved',
           submittedAt: new Date().toISOString(),
-          isPaid: false
+          isPaid: autoAbsenceCount < allowance
         });
       });
     if (newLeaves.length > 0) {

@@ -37,6 +37,8 @@ import EmployeeDashboard from './components/EmployeeDashboard';
 const SAVED_SESSION_KEY = 'bytechsol_saved_session';
 const SAVED_LOGIN_KEY = 'bytechsol_saved_login';
 const NOTIFICATION_STORAGE_KEY = 'bytechsol_notifications';
+const ATTENDANCE_STORAGE_KEY = 'bytechsol_attendance';
+const CACHE_VERSION_KEY = 'bytechsol_cache_version';
 
 const isSameMonth = (dateStr: string, target: Date): boolean => {
   const date = new Date(dateStr);
@@ -381,6 +383,15 @@ const App: React.FC = () => {
   const usersRef = useRef<User[]>([]);
 
   useEffect(() => {
+    const version = APP_CONFIG.CACHE_VERSION || '1';
+    const stored = localStorage.getItem(CACHE_VERSION_KEY);
+    if (stored !== version) {
+      localStorage.removeItem(ATTENDANCE_STORAGE_KEY);
+      localStorage.setItem(CACHE_VERSION_KEY, version);
+    }
+  }, []);
+
+  useEffect(() => {
     usersRef.current = users;
   }, [users]);
   const addOrUpdateNotification = useCallback((nextNotification: AppNotification, forceUnread = false) => {
@@ -434,7 +445,7 @@ const App: React.FC = () => {
       const { normalized, changed } = normalizeOvertimeRecords(recordsData, usersData);
       setRecords(normalized);
       if (changed) {
-        void saveRecords(normalized);
+        saveRecordsLocal(normalized);
       }
       setLeaves(leavesData);
       setEssProfiles(essData);
@@ -608,7 +619,7 @@ const App: React.FC = () => {
       const { normalized, changed } = normalizeOvertimeRecords(data, usersRef.current);
       setRecords(normalized);
       if (changed) {
-        void saveRecords(normalized);
+        saveRecordsLocal(normalized);
       }
     };
     const refreshLeaves = async () => {
@@ -658,7 +669,7 @@ const App: React.FC = () => {
     const { normalized, changed } = normalizeRecordUserIds(records, users);
     if (changed) {
       setRecords(normalized);
-      void saveRecords(normalized);
+      saveRecordsLocal(normalized);
     }
   }, [records, users]);
 

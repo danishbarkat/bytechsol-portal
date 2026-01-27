@@ -625,8 +625,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
     return false;
   };
+  const isLeaveVisible = (leave: LeaveRequest) => {
+    if (visibleUserIds.has(leave.userId)) return true;
+    if (leave.userId) {
+      return visibleEmployeeIds.has(normalizeEmployeeId(String(leave.userId)));
+    }
+    if (leave.userName) {
+      return visibleUsers.some(u => u.name.trim().toLowerCase() === leave.userName.trim().toLowerCase());
+    }
+    return false;
+  };
   const visibleRecords = isSuperadmin || !rosterAvailable ? records : records.filter(isRecordVisible);
-  const visibleLeaves = isSuperadmin || !rosterAvailable ? leaves : leaves.filter(l => visibleUserIds.has(l.userId));
+  const visibleLeaves = isSuperadmin || !rosterAvailable ? leaves : leaves.filter(isLeaveVisible);
   const visibleLeaveRequests = visibleLeaves.filter(l => !l.id.startsWith('auto-absence:'));
   const visibleWfh = isSuperadmin || !rosterAvailable ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));
   const overtimeUsers = rosterAvailable

@@ -147,6 +147,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const buildLeaveTemplate = (employee: User) =>
     `Leave Application\n\nReason:\n\nRegards,\n${employee.name}\nID: ${employee.employeeId}`;
   const [leaveApplication, setLeaveApplication] = useState(buildLeaveTemplate(user));
+  const [leaveStartDate, setLeaveStartDate] = useState(() => getLocalDateString(new Date()));
+  const [leaveEndDate, setLeaveEndDate] = useState(() => getLocalDateString(new Date()));
   const [wfhReason, setWfhReason] = useState('');
   const [wfhStartDate, setWfhStartDate] = useState(() => getLocalDateString(new Date()));
   const [wfhEndDate, setWfhEndDate] = useState(() => getLocalDateString(new Date()));
@@ -552,7 +554,12 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const monthlySalary = calculateTotalSalary(user.basicSalary, user.allowances, user.salary);
   const dailySalary = monthlySalary ? Math.round(monthlySalary / 30) : null;
   const paidLeavesThisMonth = leaves.filter(
-    l => l.userId === user.id && (l.isPaid ?? true) && l.status !== 'Cancelled' && isSameMonth(l.startDate, currentTime)
+    l =>
+      l.userId === user.id &&
+      !l.id.startsWith('auto-absence:') &&
+      (l.isPaid ?? true) &&
+      l.status === 'Approved' &&
+      isSameMonth(l.startDate, currentTime)
   ).length;
   const paidLeaveRemaining = Math.max(0, 1 - paidLeavesThisMonth);
   const {
@@ -972,6 +979,28 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
             <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-8">
               <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Apply for Leave</h3>
               <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label htmlFor="leave-start" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Start Date</label>
+                    <input
+                      id="leave-start"
+                      type="date"
+                      value={leaveStartDate}
+                      onChange={e => setLeaveStartDate(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[10px] font-black outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="leave-end" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">End Date</label>
+                    <input
+                      id="leave-end"
+                      type="date"
+                      value={leaveEndDate}
+                      onChange={e => setLeaveEndDate(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[10px] font-black outline-none"
+                    />
+                  </div>
+                </div>
                 <div className="space-y-1">
                   <label htmlFor="leave-application" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Leave Application (Template)</label>
                   <textarea id="leave-application" name="leaveApplication" value={leaveApplication} onChange={e => setLeaveApplication(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-40 resize-none" />
@@ -984,8 +1013,13 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                 </div>
                 <button
                   onClick={() => {
+                    if (!leaveStartDate || !leaveEndDate) return;
+                    const safeStart = leaveStartDate <= leaveEndDate ? leaveStartDate : leaveEndDate;
+                    const safeEnd = leaveStartDate <= leaveEndDate ? leaveEndDate : leaveStartDate;
+                    onSubmitLeave(safeStart, safeEnd, leaveApplication);
                     const todayStr = getLocalDateString(new Date());
-                    onSubmitLeave(todayStr, todayStr, leaveApplication);
+                    setLeaveStartDate(todayStr);
+                    setLeaveEndDate(todayStr);
                     setLeaveApplication(buildLeaveTemplate(user));
                   }}
                   className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl"

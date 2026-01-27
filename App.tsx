@@ -826,7 +826,7 @@ const App: React.FC = () => {
       l.userId === targetUser.id &&
       !l.id.startsWith('auto-absence:') &&
       (l.isPaid ?? true) &&
-      l.status !== 'Cancelled' &&
+      l.status === 'Approved' &&
       isSameMonth(l.startDate, leaveMonth)
     ).length;
     const isPaid = paidLeavesThisMonth < 1;
@@ -1126,7 +1126,7 @@ const App: React.FC = () => {
       l.userId === user.id &&
       !l.id.startsWith('auto-absence:') &&
       (l.isPaid ?? true) &&
-      l.status !== 'Cancelled' &&
+      l.status === 'Approved' &&
       isSameMonth(l.startDate, leaveMonth)
     ).length;
     const isPaid = paidLeavesThisMonth < 1;

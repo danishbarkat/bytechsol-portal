@@ -795,7 +795,11 @@ const App: React.FC = () => {
     const updated = [...wfhRequests, newRequest];
     setWfhRequests(updated);
     setRequestSubmitting(true);
-    Promise.resolve(saveWfhRequests(updated))
+    Promise.resolve(adminUpsertWfhRequest(newRequest))
+      .catch(err => {
+        console.error(err);
+        return saveWfhRequests(updated);
+      })
       .finally(() => setRequestSubmitting(false));
     setRequestFeedback('WFH access request submitted.');
     setRequestReason('');
@@ -820,6 +824,7 @@ const App: React.FC = () => {
     const leaveMonth = new Date(safeStart);
     const paidLeavesThisMonth = leaves.filter(l =>
       l.userId === targetUser.id &&
+      !l.id.startsWith('auto-absence:') &&
       (l.isPaid ?? true) &&
       l.status !== 'Cancelled' &&
       isSameMonth(l.startDate, leaveMonth)
@@ -839,7 +844,11 @@ const App: React.FC = () => {
     const updated = [...leaves, newLeave];
     setLeaves(updated);
     setRequestSubmitting(true);
-    Promise.resolve(saveLeaves(updated))
+    Promise.resolve(adminUpsertLeave(newLeave))
+      .catch(err => {
+        console.error(err);
+        return saveLeaves(updated);
+      })
       .finally(() => setRequestSubmitting(false));
     setRequestFeedback('Leave request submitted.');
     setRequestReason('');
@@ -1059,7 +1068,14 @@ const App: React.FC = () => {
     };
     const updated = [...wfhRequests, newRequest];
     setWfhRequests(updated);
-    void saveWfhRequests(updated);
+    void (async () => {
+      try {
+        await adminUpsertWfhRequest(newRequest);
+      } catch (err) {
+        console.error(err);
+        await saveWfhRequests(updated);
+      }
+    })();
     const ceoUsers = users.filter(u => u.role === Role.CEO);
     ceoUsers.forEach(ceo => {
       addOrUpdateNotification({
@@ -1108,6 +1124,7 @@ const App: React.FC = () => {
     const leaveMonth = new Date(startDate);
     const paidLeavesThisMonth = leaves.filter(l =>
       l.userId === user.id &&
+      !l.id.startsWith('auto-absence:') &&
       (l.isPaid ?? true) &&
       l.status !== 'Cancelled' &&
       isSameMonth(l.startDate, leaveMonth)
@@ -1126,7 +1143,14 @@ const App: React.FC = () => {
     };
     const updated = [...leaves, newLeave];
     setLeaves(updated);
-    void saveLeaves(updated);
+    void (async () => {
+      try {
+        await adminUpsertLeave(newLeave);
+      } catch (err) {
+        console.error(err);
+        await saveLeaves(updated);
+      }
+    })();
     const ceoUsers = users.filter(u => u.role === Role.CEO);
     ceoUsers.forEach(ceo => {
       addOrUpdateNotification({

@@ -115,6 +115,7 @@ interface EmployeeDashboardProps {
   checklists: UserChecklist[];
   onCheckIn: () => void;
   onCheckOut: () => void;
+  onUpdateRecord: (record: AttendanceRecord) => void;
   isWifiConnected: boolean;
   isCheckinOverride?: boolean;
   onSubmitLeave: (start: string, end: string, reason: string) => void;
@@ -134,6 +135,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   checklists,
   onCheckIn,
   onCheckOut,
+  onUpdateRecord,
   isWifiConnected,
   isCheckinOverride = false,
   onSubmitLeave,
@@ -181,6 +183,16 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const attendanceMonthRef = useRef<HTMLInputElement | null>(null);
+  const [overtimeActive, setOvertimeActive] = useState(false);
+  const [overtimeEndsAt, setOvertimeEndsAt] = useState<number | null>(null);
+  const [overtimeStartAt, setOvertimeStartAt] = useState<number | null>(null);
+  const [overtimeRemainingSec, setOvertimeRemainingSec] = useState(0);
+  const [overtimeRecordId, setOvertimeRecordId] = useState<string | null>(null);
+  const overtimeTimerRef = useRef<number | null>(null);
+  const overtimeIntervalRef = useRef<number | null>(null);
+  const overtimeActiveRef = useRef(false);
+  const overtimeStartRef = useRef<number | null>(null);
+  const overtimeRecordRef = useRef<string | null>(null);
   const resolveRecordDate = (record: AttendanceRecord) => {
     if (record.date) return record.date;
     if (!record.checkIn) return '';
@@ -565,6 +577,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       }
       return map;
     }, new Map<string, AttendanceRecord>())
+      .values()
   ).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const visibleEmployeeRecords = dedupedEmployeeRecords.filter(r => r.date || r.checkIn);
   const filteredEmployeeRecords = attendanceDateFilter
@@ -607,6 +620,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const paidLeaveRemaining = Math.max(0, 1 - paidLeavesThisMonth);
   const {
     startMinutes: shiftStartMinutes,
+    endMinutesRaw,
     endMinutesAdjusted: shiftEndMinutes,
     durationHours: shiftHours,
     isOvernight: isOvernightShift
@@ -646,6 +660,120 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     if (checkOutMinutes >= earlyCheckoutCutoff) return 0;
     return Math.max(0, earlyCheckoutCutoff - checkOutMinutes);
   };
+
+  const shiftWindowStart = shiftStartMinutes;
+  const shiftWindowEnd = endMinutesRaw;
+  const nowMinutesRaw = getLocalTimeMinutes(currentTime);
+  const inShiftWindow = isOvernightShift
+    ? nowMinutesRaw >= shiftWindowStart || nowMinutesRaw < shiftWindowEnd
+    : nowMinutesRaw >= shiftWindowStart && nowMinutesRaw < shiftWindowEnd;
+  const overtimeWindowAllowed = !inShiftWindow;
+  const overtimeTargetRecord = sortedEmployeeRecords.find(r => r.checkOut);
+  const overtimeRecord = overtimeRecordId
+    ? records.find(r => r.id === overtimeRecordId) || overtimeTargetRecord
+    : overtimeTargetRecord;
+  const canShowOvertimeToggle = Boolean(overtimeRecord) && !activeRecord;
+  const canStartOvertime = Boolean(overtimeRecord) && overtimeWindowAllowed && !activeRecord;
+
+  const clearOvertimeTimers = () => {
+    if (overtimeTimerRef.current) {
+      window.clearTimeout(overtimeTimerRef.current);
+      overtimeTimerRef.current = null;
+    }
+    if (overtimeIntervalRef.current) {
+      window.clearInterval(overtimeIntervalRef.current);
+      overtimeIntervalRef.current = null;
+    }
+  };
+
+  const applyOvertimeMinutes = (record: AttendanceRecord, minutes: number) => {
+    if (!record.checkIn || !record.checkOut) return;
+    if (minutes <= 0) return;
+    const checkInDate = new Date(record.checkIn);
+    const checkOutDate = new Date(record.checkOut);
+    if (Number.isNaN(checkInDate.getTime()) || Number.isNaN(checkOutDate.getTime())) return;
+    const updatedCheckOut = new Date(checkOutDate.getTime() + minutes * 60 * 1000);
+    const totalHours = (updatedCheckOut.getTime() - checkInDate.getTime()) / (1000 * 60 * 60);
+    const overtimeHours = Math.max(0, totalHours - shiftHours);
+    onUpdateRecord({
+      ...record,
+      checkOut: updatedCheckOut.toISOString(),
+      totalHours,
+      overtimeHours,
+      localUpdatedAt: new Date().toISOString()
+    });
+  };
+
+  const stopOvertime = (autoStop: boolean) => {
+    const active = overtimeActiveRef.current;
+    const startAt = overtimeStartRef.current;
+    const recordId = overtimeRecordRef.current;
+    if (!active || !startAt || !recordId) {
+      clearOvertimeTimers();
+      setOvertimeActive(false);
+      setOvertimeEndsAt(null);
+      setOvertimeStartAt(null);
+      setOvertimeRemainingSec(0);
+      setOvertimeRecordId(null);
+      overtimeActiveRef.current = false;
+      overtimeStartRef.current = null;
+      overtimeRecordRef.current = null;
+      return;
+    }
+    const elapsedMs = Date.now() - startAt;
+    const elapsedMinutes = Math.min(15, Math.max(0, Math.round(elapsedMs / 60000)));
+    const latestRecord = records.find(r => r.id === recordId) || overtimeRecord;
+    if (latestRecord) {
+      applyOvertimeMinutes(latestRecord, elapsedMinutes);
+    }
+    clearOvertimeTimers();
+    setOvertimeActive(false);
+    setOvertimeEndsAt(null);
+    setOvertimeStartAt(null);
+    setOvertimeRemainingSec(0);
+    setOvertimeRecordId(null);
+    overtimeActiveRef.current = false;
+    overtimeStartRef.current = null;
+    overtimeRecordRef.current = null;
+  };
+
+  const startOvertime = () => {
+    if (!canStartOvertime || !overtimeRecord) return;
+    const startAt = Date.now();
+    const endsAt = startAt + 15 * 60 * 1000;
+    setOvertimeActive(true);
+    setOvertimeStartAt(startAt);
+    setOvertimeEndsAt(endsAt);
+    setOvertimeRemainingSec(15 * 60);
+    setOvertimeRecordId(overtimeRecord.id);
+    overtimeActiveRef.current = true;
+    overtimeStartRef.current = startAt;
+    overtimeRecordRef.current = overtimeRecord.id;
+    clearOvertimeTimers();
+    overtimeTimerRef.current = window.setTimeout(() => stopOvertime(true), 15 * 60 * 1000);
+    overtimeIntervalRef.current = window.setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+      setOvertimeRemainingSec(remaining);
+    }, 1000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (overtimeActiveRef.current) {
+        stopOvertime(true);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!overtimeActiveRef.current) return;
+    const recordId = overtimeRecordRef.current;
+    if (!recordId) return;
+    const stillExists = records.some(r => r.id === recordId);
+    if (!stillExists) {
+      stopOvertime(true);
+    }
+  }, [records]);
 
   const monthLabel = currentTime.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const monthRecords = records.filter(r => matchesUserRecord(r) && isSameMonth(resolveRecordDate(r), currentTime));
@@ -849,6 +977,35 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                 >
                   {activeRecord ? 'Check Out' : shiftLocked ? 'Shift Done' : 'Check In'}
                 </button>
+              )}
+
+              {canShowOvertimeToggle && (
+                <div className="mt-6 p-5 bg-slate-50/80 rounded-[2rem] border border-slate-200">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Overtime Boost</p>
+                      <p className="text-xs font-bold text-slate-600 mt-1">Max 15 min per enable</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={overtimeActive ? () => stopOvertime(false) : startOvertime}
+                      disabled={!canStartOvertime && !overtimeActive}
+                      className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${overtimeActive ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white'} disabled:opacity-40`}
+                    >
+                      {overtimeActive ? 'Stop' : 'Start'}
+                    </button>
+                  </div>
+                  {!overtimeWindowAllowed && (
+                    <p className="text-[9px] font-bold text-rose-500 mt-2">
+                      Overtime allowed only between 5:00 AM and 8:00 PM.
+                    </p>
+                  )}
+                  {overtimeActive && (
+                    <p className="text-[9px] font-bold text-emerald-600 mt-2">
+                      Auto-off in {Math.max(0, Math.floor(overtimeRemainingSec / 60))}m {Math.max(0, overtimeRemainingSec % 60)}s
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </div>

@@ -1253,6 +1253,25 @@ const App: React.FC = () => {
     }
   };
 
+  const handleEmployeeRecordUpdate = (updatedRecord: AttendanceRecord) => {
+    setRecords(prevRecords => {
+      const exists = prevRecords.some(r => r.id === updatedRecord.id);
+      const newRecords = exists
+        ? prevRecords.map(r => r.id === updatedRecord.id ? { ...updatedRecord } : r)
+        : [...prevRecords, { ...updatedRecord }];
+      saveRecordsLocal(newRecords);
+      return newRecords;
+    });
+    void (async () => {
+      try {
+        await adminUpsertAttendanceRecord(updatedRecord);
+      } catch (err) {
+        console.error(err);
+        await upsertAttendanceRecord(updatedRecord);
+      }
+    })();
+  };
+
   const handleDeleteRecord = (recordId: string) => {
     setRecords(prevRecords => {
       const updated = prevRecords.filter(r => r.id !== recordId);
@@ -1614,6 +1633,7 @@ const App: React.FC = () => {
           checklists={checklists}
           onCheckIn={handleCheckIn}
           onCheckOut={handleCheckOut}
+          onUpdateRecord={handleEmployeeRecordUpdate}
           isWifiConnected={isWifiConnected}
           isCheckinOverride={isCheckinOverrideUser}
           onSubmitLeave={handleSubmitLeave}

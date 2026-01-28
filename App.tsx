@@ -1001,7 +1001,14 @@ const App: React.FC = () => {
     const updated = [...records, record];
     setRecords(updated);
     saveRecordsLocal(updated);
-    void upsertAttendanceRecord(record);
+    void (async () => {
+      try {
+        await adminUpsertAttendanceRecord(record);
+      } catch (err) {
+        console.error(err);
+        await upsertAttendanceRecord(record);
+      }
+    })();
   }, [user, records]);
 
   const handleCheckOut = useCallback(() => {
@@ -1022,7 +1029,14 @@ const App: React.FC = () => {
     saveRecordsLocal(updated);
     const updatedRecord = updated.find(r => r.id === activeRecord.id);
     if (updatedRecord) {
-      void upsertAttendanceRecord(updatedRecord);
+      void (async () => {
+        try {
+          await adminUpsertAttendanceRecord(updatedRecord);
+        } catch (err) {
+          console.error(err);
+          await upsertAttendanceRecord(updatedRecord);
+        }
+      })();
     }
   }, [user, records]);
 

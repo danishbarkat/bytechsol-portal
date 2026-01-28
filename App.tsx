@@ -68,6 +68,9 @@ const normalizeEmployeeId = (value: string): string => {
 const normalizeEmail = (value: string | undefined): string =>
   (value || '').trim().toLowerCase();
 
+const normalizeName = (value: string | undefined): string =>
+  (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
 const extractEmployeeSuffix = (value: string): string | null => {
   const match = normalizeEmployeeId(value).match(/(\d{3})$/);
   return match ? match[1] : null;
@@ -80,7 +83,7 @@ const matchesUserRecord = (record: AttendanceRecord, user: User): boolean => {
     if (normalizeEmployeeId(String(record.userId)) === normalizedEmployeeId) return true;
   }
   if (record.userName && user.name) {
-    return record.userName.trim().toLowerCase() === user.name.trim().toLowerCase();
+    return normalizeName(record.userName) === normalizeName(user.name);
   }
   return false;
 };

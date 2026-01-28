@@ -17,6 +17,15 @@ const parseDateUtc = (dateStr: string) => {
   return new Date(Date.UTC(year, month - 1, day));
 };
 
+const normalizeName = (value?: string) =>
+  (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const isValidDateValue = (value?: string) => {
+  if (!value) return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime());
+};
+
 const CROP_PREVIEW_SIZE = 160;
 const CROP_OUTPUT_SIZE = 512;
 
@@ -519,13 +528,15 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       if (normalizeEmployeeId(String(userId)) === normalizedEmployeeId) return true;
     }
     if (userName && user.name) {
-      return userName.trim().toLowerCase() === user.name.trim().toLowerCase();
+      return normalizeName(userName) === normalizeName(user.name);
     }
     return false;
   };
   const matchesUserRecord = (record: AttendanceRecord) =>
     matchesUser(record.userId, record.userName);
-  const activeRecord = [...records].reverse().find(r => matchesUserRecord(r) && !r.checkOut);
+  const activeRecord = [...records]
+    .reverse()
+    .find(r => matchesUserRecord(r) && isValidDateValue(r.checkIn) && !isValidDateValue(r.checkOut));
   const shiftDate = getShiftDateString(currentTime, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
   const hasShiftRecord = records.some(r => matchesUserRecord(r) && r.date === shiftDate);
   const shiftLocked = hasShiftRecord && !activeRecord;
@@ -554,7 +565,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     return false;
   });
   const dedupedEmployeeRecords = Array.from(
-    employeeRecords.reduce((map, record) => {
+    employeeRecords.reduce((map: Map<string, AttendanceRecord>, record) => {
       const key = record.date || '';
       if (!key) return map;
       const existing = map.get(key);
@@ -578,8 +589,11 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       return map;
     }, new Map<string, AttendanceRecord>())
       .values()
-  ).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const visibleEmployeeRecords = dedupedEmployeeRecords.filter(r => r.date || r.checkIn);
+  ) as AttendanceRecord[];
+  const sortedDedupedEmployeeRecords = [...dedupedEmployeeRecords].sort((a, b) =>
+    (b.date || '').localeCompare(a.date || '')
+  );
+  const visibleEmployeeRecords = sortedDedupedEmployeeRecords.filter(r => r.date || r.checkIn);
   const filteredEmployeeRecords = attendanceDateFilter
     ? visibleEmployeeRecords.filter(r => resolveRecordDate(r) === attendanceDateFilter)
     : visibleEmployeeRecords;
@@ -601,7 +615,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const monthSummaryLabel = new Date(`${effectiveMonthFilter}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const monthTotalHours = attendanceMonthRecords.reduce((sum, r) => sum + (r.totalHours || 0), 0);
   const monthOvertimeHours = attendanceMonthRecords.reduce((sum, r) => sum + (r.overtimeHours || 0), 0);
-  const activeSeconds = activeRecord && !activeRecord.checkOut
+  const activeSeconds = activeRecord && isValidDateValue(activeRecord.checkIn)
     ? (currentTime.getTime() - new Date(activeRecord.checkIn).getTime()) / 1000
     : 0;
   const lateAllowance = 3;
@@ -872,7 +886,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   };
 
   const getCheckoutStatus = (record: AttendanceRecord) => {
-    if (!record.checkOut) return 'Active';
+    if (!isValidDateValue(record.checkOut)) return 'Active';
     const checkOutDate = new Date(record.checkOut);
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
     const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
@@ -1077,7 +1091,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                         </td>
                         <td className="py-6">
                           <div className="flex flex-col">
-                            <span className="text-xs font-black">{r.checkOut ? formatTimeInZone(r.checkOut) : 'Active'}</span>
+                            <span className="text-xs font-black">{isValidDateValue(r.checkOut) ? formatTimeInZone(r.checkOut) : 'Active'}</span>
                             <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>{getCheckoutStatus(r)}</span>
                           </div>
                         </td>
@@ -1160,7 +1174,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                           </td>
                           <td className="py-6">
                             <div className="flex flex-col">
-                              <span className="text-xs font-black">{r.checkOut ? formatTimeInZone(r.checkOut) : 'Active'}</span>
+                              <span className="text-xs font-black">{isValidDateValue(r.checkOut) ? formatTimeInZone(r.checkOut) : 'Active'}</span>
                               <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>{getCheckoutStatus(r)}</span>
                             </div>
                           </td>

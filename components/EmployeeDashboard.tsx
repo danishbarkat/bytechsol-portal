@@ -695,16 +695,19 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   };
 
   const getDisplayStatus = (record: AttendanceRecord) => {
-    if (user.workMode === 'Remote') return record.status || 'On-Time';
+    if (user.workMode === 'Remote') return 'On-Time';
     if (!record.checkIn) return record.status || 'On-Time';
     const checkInDate = new Date(record.checkIn);
+    if (Number.isNaN(checkInDate.getTime())) return record.status || 'On-Time';
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInDate,
       APP_CONFIG.SHIFT_START,
       APP_CONFIG.SHIFT_END
     );
+    const relaxation = APP_CONFIG.GRACE_PERIOD_MINS;
     if (currentMinutes < startMinutes) return 'Early';
-    return record.status || 'On-Time';
+    if (currentMinutes <= startMinutes + relaxation) return 'On-Time';
+    return 'Late';
   };
 
   const getCheckoutStatus = (record: AttendanceRecord) => {

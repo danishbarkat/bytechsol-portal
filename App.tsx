@@ -72,6 +72,18 @@ const extractEmployeeSuffix = (value: string): string | null => {
   return match ? match[1] : null;
 };
 
+const matchesUserRecord = (record: AttendanceRecord, user: User): boolean => {
+  if (record.userId === user.id) return true;
+  const normalizedEmployeeId = user.employeeId ? normalizeEmployeeId(user.employeeId) : '';
+  if (normalizedEmployeeId && record.userId) {
+    if (normalizeEmployeeId(String(record.userId)) === normalizedEmployeeId) return true;
+  }
+  if (record.userName && user.name) {
+    return record.userName.trim().toLowerCase() === user.name.trim().toLowerCase();
+  }
+  return false;
+};
+
 const computeTotalHours = (checkInIso: string, checkOutIso: string): number => {
   const checkInTime = new Date(checkInIso);
   const checkOutTime = new Date(checkOutIso);
@@ -399,6 +411,7 @@ const App: React.FC = () => {
   const remoteLoginIds = (APP_CONFIG.REMOTE_LOGIN_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
   const checkinOverrideIds = (APP_CONFIG.CHECKIN_OVERRIDE_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
   const usersRef = useRef<User[]>([]);
+  const syncAttemptsRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     const version = APP_CONFIG.CACHE_VERSION || '1';
@@ -412,6 +425,19 @@ const App: React.FC = () => {
   useEffect(() => {
     usersRef.current = users;
   }, [users]);
+
+  useEffect(() => {
+    if (records.length === 0) return;
+    const now = Date.now();
+    const cooldownMs = 60 * 1000;
+    records.forEach(record => {
+      if (!record.id || !record.localUpdatedAt) return;
+      const lastAttempt = syncAttemptsRef.current.get(record.id) || 0;
+      if (now - lastAttempt < cooldownMs) return;
+      syncAttemptsRef.current.set(record.id, now);
+      void adminUpsertAttendanceRecord(record).catch(console.error);
+    });
+  }, [records]);
 
   useEffect(() => {
     if (!requestEmployeeId.trim() || requestName.trim()) return;
@@ -986,7 +1012,7 @@ const App: React.FC = () => {
     if (!user) return;
     const now = new Date();
     const shiftDate = getShiftDateString(now, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
-    const hasShiftRecord = records.some(r => r.userId === user.id && r.date === shiftDate);
+    const hasShiftRecord = records.some(r => r.date === shiftDate && matchesUserRecord(r, user));
     if (hasShiftRecord) {
       return;
     }
@@ -996,7 +1022,8 @@ const App: React.FC = () => {
       userName: user.name,
       date: shiftDate,
       checkIn: getZonedNowISOString(),
-      status: calculateStatus(now)
+      status: calculateStatus(now),
+      localUpdatedAt: new Date().toISOString()
     };
     const updated = [...records, record];
     setRecords(updated);
@@ -1013,7 +1040,9 @@ const App: React.FC = () => {
 
   const handleCheckOut = useCallback(() => {
     if (!user) return;
-    const activeRecord = [...records].reverse().find(r => r.userId === user.id && !r.checkOut);
+    const activeRecord = [...records]
+      .reverse()
+      .find(r => !r.checkOut && matchesUserRecord(r, user));
     if (!activeRecord) return;
     const now = new Date();
     const checkOutIso = getZonedNowISOString();
@@ -1022,7 +1051,13 @@ const App: React.FC = () => {
     const overtimeHours = computeOvertimeHours(activeRecord.checkIn, checkOutIso);
     const updated = records.map(r =>
       r.id === activeRecord.id
-        ? { ...r, checkOut: checkOutIso, totalHours: diff, overtimeHours: overtimeHours > 0 ? overtimeHours : undefined }
+        ? {
+          ...r,
+          checkOut: checkOutIso,
+          totalHours: diff,
+          overtimeHours: overtimeHours > 0 ? overtimeHours : undefined,
+          localUpdatedAt: new Date().toISOString()
+        }
         : r
     );
     setRecords(updated);

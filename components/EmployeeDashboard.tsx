@@ -497,9 +497,20 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     return `${hours}h ${minutes}m ${seconds}s`;
   };
 
-  const activeRecord = [...records].reverse().find(r => r.userId === user.id && !r.checkOut);
+  const normalizedEmployeeId = user.employeeId ? normalizeEmployeeId(user.employeeId) : '';
+  const matchesUserRecord = (record: AttendanceRecord) => {
+    if (record.userId === user.id) return true;
+    if (normalizedEmployeeId && record.userId) {
+      if (normalizeEmployeeId(String(record.userId)) === normalizedEmployeeId) return true;
+    }
+    if (record.userName && user.name) {
+      return record.userName.trim().toLowerCase() === user.name.trim().toLowerCase();
+    }
+    return false;
+  };
+  const activeRecord = [...records].reverse().find(r => matchesUserRecord(r) && !r.checkOut);
   const shiftDate = getShiftDateString(currentTime, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
-  const hasShiftRecord = records.some(r => r.userId === user.id && r.date === shiftDate);
+  const hasShiftRecord = records.some(r => matchesUserRecord(r) && r.date === shiftDate);
   const shiftLocked = hasShiftRecord && !activeRecord;
   const myLeaves = leaves
     .filter(l => l.userId === user.id && !l.id.startsWith('auto-absence:'))
@@ -513,7 +524,6 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const workMode = user.workMode || 'Onsite';
   const canTrack = workMode === 'Remote' || isWifiConnected || isWfhToday || isCheckinOverride;
   const salaryHidden = Boolean(user.salaryHidden);
-  const normalizedEmployeeId = user.employeeId ? normalizeEmployeeId(user.employeeId) : '';
   const employeeRecords = records.filter(r => {
     if (r.userId === user.id) return true;
     if (r.userId && normalizedEmployeeId) {

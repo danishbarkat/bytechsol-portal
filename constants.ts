@@ -2,7 +2,7 @@
 import { Role, User } from './types';
 
 export const APP_CONFIG = {
-  CACHE_VERSION: "2026-01-27-1",
+  CACHE_VERSION: "2026-01-28-2",
   OFFICE_WIFI_NAME: "Office_Main_5G",
   SHIFT_START: "20:00",
   SHIFT_END: "05:00",

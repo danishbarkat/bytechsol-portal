@@ -31,6 +31,7 @@ import {
 import {
   adminUpsertAttendanceRecord,
   adminDeleteAttendanceRecord,
+  adminFetchAttendanceRecords,
   adminFetchLeaves,
   adminUpsertLeave,
   adminFetchWfhRequests,
@@ -668,7 +669,20 @@ const App: React.FC = () => {
       if (active) setUsers(data);
     };
     const refreshRecords = async () => {
-      const data = await fetchRecordsRemote();
+      let data: AttendanceRecord[] = [];
+      try {
+        data = await fetchRecordsRemote();
+      } catch (err) {
+        console.error(err);
+      }
+      if (data.length === 0) {
+        try {
+          const response = await adminFetchAttendanceRecords();
+          data = response.data || [];
+        } catch (err) {
+          console.error(err);
+        }
+      }
       if (!active) return;
       const { normalized, changed } = normalizeOvertimeRecords(data, usersRef.current);
       setRecords(normalized);

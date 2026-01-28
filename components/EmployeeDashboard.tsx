@@ -181,8 +181,11 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const attendanceMonthRef = useRef<HTMLInputElement | null>(null);
-  const resolveRecordDate = (record: AttendanceRecord) =>
-    record.date || getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+  const resolveRecordDate = (record: AttendanceRecord) => {
+    if (record.date) return record.date;
+    if (!record.checkIn) return '';
+    return getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+  };
 
   const isSameMonth = (dateStr: string, target: Date) => {
     const date = new Date(dateStr);
@@ -498,24 +501,28 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   };
 
   const normalizedEmployeeId = user.employeeId ? normalizeEmployeeId(user.employeeId) : '';
-  const matchesUserRecord = (record: AttendanceRecord) => {
-    if (record.userId === user.id) return true;
-    if (normalizedEmployeeId && record.userId) {
-      if (normalizeEmployeeId(String(record.userId)) === normalizedEmployeeId) return true;
+  const matchesUser = (userId?: string, userName?: string) => {
+    if (userId === user.id) return true;
+    if (normalizedEmployeeId && userId) {
+      if (normalizeEmployeeId(String(userId)) === normalizedEmployeeId) return true;
     }
-    if (record.userName && user.name) {
-      return record.userName.trim().toLowerCase() === user.name.trim().toLowerCase();
+    if (userName && user.name) {
+      return userName.trim().toLowerCase() === user.name.trim().toLowerCase();
     }
     return false;
   };
+  const matchesUserRecord = (record: AttendanceRecord) =>
+    matchesUser(record.userId, record.userName);
   const activeRecord = [...records].reverse().find(r => matchesUserRecord(r) && !r.checkOut);
   const shiftDate = getShiftDateString(currentTime, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
   const hasShiftRecord = records.some(r => matchesUserRecord(r) && r.date === shiftDate);
   const shiftLocked = hasShiftRecord && !activeRecord;
   const myLeaves = leaves
-    .filter(l => l.userId === user.id && !l.id.startsWith('auto-absence:'))
+    .filter(l => matchesUser(l.userId, l.userName) && !l.id.startsWith('auto-absence:'))
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
-  const myWfhRequests = wfhRequests.filter(r => r.userId === user.id).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+  const myWfhRequests = wfhRequests
+    .filter(r => matchesUser(r.userId, r.userName))
+    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
   const todayStr = getLocalDateString(new Date());
   const isWfhToday = myWfhRequests.some(req =>
     req.status === 'Approved' && req.startDate <= todayStr && req.endDate >= todayStr
@@ -559,9 +566,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       return map;
     }, new Map<string, AttendanceRecord>())
   ).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const visibleEmployeeRecords = dedupedEmployeeRecords.filter(r => r.date || r.checkIn);
   const filteredEmployeeRecords = attendanceDateFilter
-    ? dedupedEmployeeRecords.filter(r => resolveRecordDate(r) === attendanceDateFilter)
-    : dedupedEmployeeRecords;
+    ? visibleEmployeeRecords.filter(r => resolveRecordDate(r) === attendanceDateFilter)
+    : visibleEmployeeRecords;
   const sortedEmployeeRecords = [...filteredEmployeeRecords].sort((a, b) => {
     const aDate = resolveRecordDate(a);
     const bDate = resolveRecordDate(b);
@@ -570,7 +578,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   });
   const defaultMonthFilter = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}`;
   const effectiveMonthFilter = attendanceMonthFilter || defaultMonthFilter;
-  const attendanceMonthRecords = dedupedEmployeeRecords.filter(r => resolveRecordDate(r).startsWith(effectiveMonthFilter));
+  const attendanceMonthRecords = visibleEmployeeRecords.filter(r => resolveRecordDate(r).startsWith(effectiveMonthFilter));
   const sortedMonthRecords = [...attendanceMonthRecords].sort((a, b) => {
     const aDate = resolveRecordDate(a);
     const bDate = resolveRecordDate(b);
@@ -584,13 +592,13 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     ? (currentTime.getTime() - new Date(activeRecord.checkIn).getTime()) / 1000
     : 0;
   const lateAllowance = 3;
-  const lateCountThisMonth = records.filter(r => r.userId === user.id && r.status === 'Late' && isSameMonth(r.date, currentTime)).length;
+  const lateCountThisMonth = records.filter(r => matchesUserRecord(r) && r.status === 'Late' && isSameMonth(r.date, currentTime)).length;
   const lateRemaining = Math.max(0, lateAllowance - lateCountThisMonth);
   const monthlySalary = calculateTotalSalary(user.basicSalary, user.allowances, user.salary);
   const dailySalary = monthlySalary ? Math.round(monthlySalary / 30) : null;
   const paidLeavesThisMonth = leaves.filter(
     l =>
-      l.userId === user.id &&
+      matchesUser(l.userId, l.userName) &&
       !l.id.startsWith('auto-absence:') &&
       (l.isPaid ?? true) &&
       l.status === 'Approved' &&
@@ -640,7 +648,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   };
 
   const monthLabel = currentTime.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const monthRecords = records.filter(r => r.userId === user.id && isSameMonth(resolveRecordDate(r), currentTime));
+  const monthRecords = records.filter(r => matchesUserRecord(r) && isSameMonth(resolveRecordDate(r), currentTime));
   const overtimeMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getOvertimeMinutesForRecord(record), 0);
   const overtimeHoursThisMonth = overtimeMinutesThisMonth / 60;
   const earlyCheckoutMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getEarlyCheckoutMinutesForRecord(record), 0);
@@ -649,10 +657,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const overtimePay = overtimeHoursThisMonth * hourlyRate;
   const earlyCheckoutDeduction = earlyCheckoutHoursThisMonth * hourlyRate;
   const absentDaysThisMonth = leaves
-    .filter(l => l.userId === user.id && l.id.startsWith('auto-absence:') && l.status === 'Approved' && isSameMonth(l.startDate, currentTime))
+    .filter(l => matchesUser(l.userId, l.userName) && l.id.startsWith('auto-absence:') && l.status === 'Approved' && isSameMonth(l.startDate, currentTime))
     .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, currentTime), 0);
   const unpaidLeaveDays = leaves
-    .filter(l => l.userId === user.id && l.status === 'Approved' && l.isPaid === false)
+    .filter(l => matchesUser(l.userId, l.userName) && l.status === 'Approved' && l.isPaid === false)
     .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, currentTime), 0);
   const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
   const baseAfterLeave = Math.max(0, monthlySalary - leaveDeduction);

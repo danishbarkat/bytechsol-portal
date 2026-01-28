@@ -26,6 +26,9 @@ const adminRequest = async <T>(path: string, body: Record<string, unknown>): Pro
 export const adminUpsertAttendanceRecord = (record: AttendanceRecord) =>
   adminRequest('/attendance/upsert', { record });
 
+export const adminFetchAttendanceRecords = () =>
+  adminRequest<{ data: AttendanceRecord[] }>('/attendance/list', {});
+
 export const adminDeleteAttendanceRecord = (recordId: string) =>
   adminRequest('/attendance/delete', { id: recordId });
 

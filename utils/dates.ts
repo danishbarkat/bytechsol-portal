@@ -97,7 +97,8 @@ export const getLocalTimeMinutes = (date: Date, timeZone = 'Asia/Karachi'): numb
   return hour * 60 + minute;
 };
 
-export const formatTimeInZone = (value: string | Date, timeZone = 'Asia/Karachi'): string => {
+export const formatTimeInZone = (value?: string | Date, timeZone = 'Asia/Karachi'): string => {
+  if (!value) return '';
   const date = typeof value === 'string' ? new Date(value) : value;
   if (!isValidDate(date)) return '';
   return new Intl.DateTimeFormat('en-US', {

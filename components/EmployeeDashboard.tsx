@@ -534,9 +534,34 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     }
     return false;
   });
+  const dedupedEmployeeRecords = Array.from(
+    employeeRecords.reduce((map, record) => {
+      const key = record.date || '';
+      if (!key) return map;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, record);
+        return map;
+      }
+      const existingHasOut = Boolean(existing.checkOut);
+      const recordHasOut = Boolean(record.checkOut);
+      if (recordHasOut && !existingHasOut) {
+        map.set(key, record);
+        return map;
+      }
+      if (!recordHasOut && !existingHasOut) {
+        const existingTime = new Date(existing.checkIn || 0).getTime();
+        const recordTime = new Date(record.checkIn || 0).getTime();
+        if (recordTime > existingTime) {
+          map.set(key, record);
+        }
+      }
+      return map;
+    }, new Map<string, AttendanceRecord>())
+  ).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const filteredEmployeeRecords = attendanceDateFilter
-    ? employeeRecords.filter(r => resolveRecordDate(r) === attendanceDateFilter)
-    : employeeRecords;
+    ? dedupedEmployeeRecords.filter(r => resolveRecordDate(r) === attendanceDateFilter)
+    : dedupedEmployeeRecords;
   const sortedEmployeeRecords = [...filteredEmployeeRecords].sort((a, b) => {
     const aDate = resolveRecordDate(a);
     const bDate = resolveRecordDate(b);
@@ -545,7 +570,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   });
   const defaultMonthFilter = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}`;
   const effectiveMonthFilter = attendanceMonthFilter || defaultMonthFilter;
-  const attendanceMonthRecords = employeeRecords.filter(r => resolveRecordDate(r).startsWith(effectiveMonthFilter));
+  const attendanceMonthRecords = dedupedEmployeeRecords.filter(r => resolveRecordDate(r).startsWith(effectiveMonthFilter));
   const sortedMonthRecords = [...attendanceMonthRecords].sort((a, b) => {
     const aDate = resolveRecordDate(a);
     const bDate = resolveRecordDate(b);

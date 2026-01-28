@@ -566,7 +566,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     const aDate = resolveRecordDate(a);
     const bDate = resolveRecordDate(b);
     if (aDate !== bDate) return bDate.localeCompare(aDate);
-    return b.checkIn.localeCompare(a.checkIn);
+    return (b.checkIn || '').localeCompare(a.checkIn || '');
   });
   const defaultMonthFilter = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}`;
   const effectiveMonthFilter = attendanceMonthFilter || defaultMonthFilter;
@@ -575,7 +575,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     const aDate = resolveRecordDate(a);
     const bDate = resolveRecordDate(b);
     if (aDate !== bDate) return bDate.localeCompare(aDate);
-    return b.checkIn.localeCompare(a.checkIn);
+    return (b.checkIn || '').localeCompare(a.checkIn || '');
   });
   const monthSummaryLabel = new Date(`${effectiveMonthFilter}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const monthTotalHours = attendanceMonthRecords.reduce((sum, r) => sum + (r.totalHours || 0), 0);

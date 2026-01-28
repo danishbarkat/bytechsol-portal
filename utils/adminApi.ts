@@ -7,13 +7,14 @@ const adminRequest = async <T>(path: string, body: Record<string, unknown>): Pro
   if (!ADMIN_API_URL) {
     throw new Error('Admin API URL not configured');
   }
+  const payload = ADMIN_API_SECRET ? { ...body, adminSecret: ADMIN_API_SECRET } : body;
   const res = await fetch(`${ADMIN_API_URL}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(ADMIN_API_SECRET ? { Authorization: `Bearer ${ADMIN_API_SECRET}` } : {})
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(payload)
   });
   if (!res.ok) {
     const text = await res.text();

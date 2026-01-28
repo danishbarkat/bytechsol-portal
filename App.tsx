@@ -192,6 +192,7 @@ const autoCheckoutStaleRecords = (list: AttendanceRecord[], userList: User[]) =>
     if (!isSuperseded && !isStale) return record;
     const checkOutIso = getShiftEndISOString(recordShiftDate);
     if (!checkOutIso) return record;
+    if (Date.now() < new Date(checkOutIso).getTime()) return record;
     const totalHours = computeTotalHours(record.checkIn, checkOutIso);
     const overtimeHours = computeOvertimeHours(record.checkIn, checkOutIso);
     changed = true;

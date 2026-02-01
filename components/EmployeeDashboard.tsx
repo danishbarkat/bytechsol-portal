@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist, Role, WorkFromHomeRequest } from '../types';
-import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
+import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist, Role, WorkFromHomeRequest, Task } from '../types';
+import TaskBoard from './TaskBoard';
+import { formatDuration, calculateWeeklyOvertime, calculateDuration } from '../utils/storage';
 import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, formatTimeInZone } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
+import Icon3D from './Icon3D';
 import { supabase, isSupabaseConfigured } from '../utils/supabase';
 
 const calculateTotalSalary = (basic?: number, allowances?: number, fallback?: number) => {
@@ -133,6 +135,11 @@ interface EmployeeDashboardProps {
   onUpdateChecklist: (checklist: UserChecklist) => void;
   onUpdateUser: (user: User) => void;
   onCancelLeave: (leaveId: string) => void;
+  tasks: Task[];
+  onUpdateTask: (task: Task) => void;
+  onAddTask: (task: Task) => void;
+  onDeleteTask: (taskId: string) => void;
+  users: User[]; // Needed for resolving task assigner names
 }
 
 const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
@@ -152,9 +159,15 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   onUpdateESS,
   onUpdateChecklist,
   onUpdateUser,
-  onCancelLeave
+
+  onCancelLeave,
+  tasks,
+  onUpdateTask,
+  onAddTask,
+  onDeleteTask,
+  users
 }) => {
-  const [tab, setTab] = useState<'attendance' | 'leaves' | 'profile' | 'checklists'>('attendance');
+  const [tab, setTab] = useState<'attendance' | 'leaves' | 'profile' | 'checklists' | 'tasks'>('attendance');
   const buildLeaveTemplate = (employee: User) =>
     `Leave Application\n\nReason:\n\nRegards,\n${employee.name}\nID: ${employee.employeeId}`;
   const [leaveApplication, setLeaveApplication] = useState(buildLeaveTemplate(user));
@@ -186,10 +199,36 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [attendanceDateFilter, setAttendanceDateFilter] = useState('');
+  const [attendancePage, setAttendancePage] = useState(1);
   const attendanceDateRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setAttendancePage(1);
+  }, [attendanceDateFilter, tab]);
   const [attendanceMonthFilter, setAttendanceMonthFilter] = useState(() => {
     const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    // Smart default: If there are no records for current month, but records exist for previous month, default to previous
+    if (records && records.length > 0) {
+      const currentMonthHasRecords = records.some(r => {
+        const d = r.date || (r.checkIn ? r.checkIn.split('T')[0] : '');
+        return d.startsWith(currentMonth);
+      });
+
+      if (!currentMonthHasRecords) {
+        // Find the most recent month with records
+        const sortedDates = records
+          .map(r => r.date || (r.checkIn ? r.checkIn.split('T')[0] : ''))
+          .filter(d => d)
+          .sort((a, b) => b.localeCompare(a));
+
+        if (sortedDates.length > 0) {
+          return sortedDates[0].substring(0, 7); // YYYY-MM
+        }
+      }
+    }
+    return currentMonth;
   });
   const attendanceMonthRef = useRef<HTMLInputElement | null>(null);
   const [overtimeActive, setOvertimeActive] = useState(false);
@@ -521,6 +560,9 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     return `${hours}h ${minutes}m ${seconds}s`;
   };
 
+  const isAttendanceExempt = APP_CONFIG.ATTENDANCE_EXEMPT_ROLES.includes(user.role) ||
+    (user.employeeId && APP_CONFIG.ATTENDANCE_EXEMPT_EMPLOYEE_IDS.includes(normalizeEmployeeId(user.employeeId)));
+
   const normalizedEmployeeId = user.employeeId ? normalizeEmployeeId(user.employeeId) : '';
   const matchesUser = (userId?: string, userName?: string) => {
     if (userId === user.id) return true;
@@ -594,15 +636,30 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     (b.date || '').localeCompare(a.date || '')
   );
   const visibleEmployeeRecords = sortedDedupedEmployeeRecords.filter(r => r.date || r.checkIn);
+
+  const isManager = Boolean(
+    (user.employeeId && APP_CONFIG.TASK_MANAGERS_EMPLOYEE_IDS.includes(normalizeEmployeeId(user.employeeId))) ||
+    user.role === Role.CEO ||
+    user.role === Role.SUPERADMIN
+  );
+
   const filteredEmployeeRecords = attendanceDateFilter
     ? visibleEmployeeRecords.filter(r => resolveRecordDate(r) === attendanceDateFilter)
     : visibleEmployeeRecords;
+
   const sortedEmployeeRecords = [...filteredEmployeeRecords].sort((a, b) => {
     const aDate = resolveRecordDate(a);
     const bDate = resolveRecordDate(b);
     if (aDate !== bDate) return bDate.localeCompare(aDate);
     return (b.checkIn || '').localeCompare(a.checkIn || '');
   });
+
+  const attendanceItemsPerPage = 7;
+  const totalAttendancePages = Math.ceil(sortedEmployeeRecords.length / attendanceItemsPerPage);
+  const paginatedEmployeeRecords = sortedEmployeeRecords.slice(
+    (attendancePage - 1) * attendanceItemsPerPage,
+    attendancePage * attendanceItemsPerPage
+  );
   const defaultMonthFilter = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}`;
   const effectiveMonthFilter = attendanceMonthFilter || defaultMonthFilter;
   const attendanceMonthRecords = visibleEmployeeRecords.filter(r => resolveRecordDate(r).startsWith(effectiveMonthFilter));
@@ -789,8 +846,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     }
   }, [records]);
 
-  const monthLabel = currentTime.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const monthRecords = records.filter(r => matchesUserRecord(r) && isSameMonth(resolveRecordDate(r), currentTime));
+  const monthLabel = new Date(`${effectiveMonthFilter}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthRecords = attendanceMonthRecords;
   const overtimeMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getOvertimeMinutesForRecord(record), 0);
   const overtimeHoursThisMonth = overtimeMinutesThisMonth / 60;
   const earlyCheckoutMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getEarlyCheckoutMinutesForRecord(record), 0);
@@ -798,12 +855,13 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / shiftHours : 0;
   const overtimePay = overtimeHoursThisMonth * hourlyRate;
   const earlyCheckoutDeduction = earlyCheckoutHoursThisMonth * hourlyRate;
+  const monthDate = new Date(`${effectiveMonthFilter}-01T00:00:00`);
   const absentDaysThisMonth = leaves
-    .filter(l => matchesUser(l.userId, l.userName) && l.id.startsWith('auto-absence:') && l.status === 'Approved' && isSameMonth(l.startDate, currentTime))
-    .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, currentTime), 0);
+    .filter(l => matchesUser(l.userId, l.userName) && l.id.startsWith('auto-absence:') && l.status === 'Approved' && isSameMonth(l.startDate, monthDate))
+    .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, monthDate), 0);
   const unpaidLeaveDays = leaves
-    .filter(l => matchesUser(l.userId, l.userName) && l.status === 'Approved' && l.isPaid === false)
-    .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, currentTime), 0);
+    .filter(l => matchesUser(l.userId, l.userName) && l.status === 'Approved' && l.isPaid === false && isSameMonth(l.startDate, monthDate))
+    .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, monthDate), 0);
   const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
   const baseAfterLeave = Math.max(0, monthlySalary - leaveDeduction);
   const taxableSalary = Math.max(0, baseAfterLeave - earlyCheckoutDeduction);
@@ -882,6 +940,19 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     const relaxation = APP_CONFIG.GRACE_PERIOD_MINS;
     if (currentMinutes < startMinutes) return 'Early';
     if (currentMinutes <= startMinutes + relaxation) return 'On-Time';
+
+    const userId = user?.employeeId ? normalizeEmployeeId(user.employeeId) : '';
+    const generalExemptIds = (APP_CONFIG as any).LATE_EXEMPT_EMPLOYEE_IDS || [];
+    const isGeneralExempt = Boolean(userId) && generalExemptIds.includes(userId);
+    const [genCutoffHour, genCutoffMinute] = ((APP_CONFIG as any).LATE_EXEMPT_CUTOFF || "20:00").split(':').map(Number);
+    const genCutoffBase = genCutoffHour * 60 + genCutoffMinute;
+    const isOvernight = shiftEndMinutes <= shiftStartMinutes;
+    const genCutoffAdjusted = isOvernight && genCutoffBase < (shiftEndMinutes || 0) ? genCutoffBase + 24 * 60 : genCutoffBase;
+
+    if (isGeneralExempt && currentMinutes <= genCutoffAdjusted) {
+      return 'On-Time';
+    }
+
     return 'Late';
   };
 
@@ -905,257 +976,312 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   };
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">My Workspace</h1>
-          <div className="flex flex-wrap items-center gap-3 mt-1">
-            <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1 rounded-full">{user.position || 'Genral Staff'}</p>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ID: {user.employeeId}</p>
+    <div className="space-y-8 animate-fade-up">
+      {/* Premium Dashboard Header */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+        <div className="flex items-center gap-6">
+          <Icon3D icon="LayoutDashboard" size="lg" variant="blue" />
+          <div className="space-y-1">
+            <h1 className="text-4xl font-black text-slate-900 tracking-tighter">
+              System <span className="text-blue-600">Dashboard</span>
+            </h1>
+            <p className="text-slate-500 font-medium">Welcome back, {user.name}. Here's your status for today.</p>
           </div>
-          {(user.grade || user.teamLead) && (
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
-              {user.grade ? `Grade: ${user.grade}` : ''}{user.grade && user.teamLead ? ' • ' : ''}{user.teamLead ? `Team Lead: ${user.teamLead}` : ''}
-            </p>
-          )}
         </div>
-        <div className="flex p-1 bg-slate-100 rounded-2xl overflow-x-auto max-w-full">
-          {(['attendance', 'leaves', 'profile', 'checklists'] as const).map(t => (
+
+        {/* Tab Navigation - Premium Pill Style */}
+        <div className="flex items-center p-2 bg-slate-50 rounded-[2.5rem] border-2 border-slate-100 shadow-xl shadow-blue-500/5 w-fit overflow-x-auto no-scrollbar">
+          {[
+            { id: 'attendance', label: 'Attendance', icon: 'Calendar' },
+            { id: 'leaves', label: 'Leaves', icon: 'Plane' },
+            { id: 'tasks', label: 'Tasks', icon: 'ListChecks' },
+            { id: 'checklists', label: 'Checklist', icon: 'ClipboardCheck' },
+            { id: 'profile', label: 'Profile', icon: 'User' }
+          ].map(item => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${tab === t ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              key={item.id}
+              onClick={() => setTab(item.id as any)}
+              className={`flex items-center gap-2 pr-6 py-2 rounded-[1.8rem] text-[11px] font-black uppercase tracking-widest transition-all duration-500 whitespace-nowrap ${tab === item.id
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/40 transform scale-105 pl-2'
+                : 'text-slate-500 hover:text-blue-600 hover:bg-white pl-2'
+                }`}
             >
-              {t}
+              <Icon3D
+                icon={item.icon as any}
+                size="sm"
+                variant={tab === item.id ? 'blue' : 'slate'}
+                className={tab === item.id ? 'bg-white/20 border-white/20' : ''}
+              />
+              {item.label}
             </button>
           ))}
         </div>
       </div>
 
-      {tab === 'attendance' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-          <div className="lg:col-span-4 space-y-8">
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 text-center relative overflow-hidden border-2 border-white shadow-2xl">
-              <div className={`absolute top-0 right-0 px-5 py-2 text-[9px] font-black uppercase tracking-widest ${workMode === 'Remote' ? 'bg-slate-900 text-white' : isWifiConnected ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
-                {workMode === 'Remote' ? 'Remote Mode' : isWifiConnected ? 'Network Secure' : 'Access Restricted'}
-              </div>
-              <h1 className="text-5xl font-black text-slate-900 mt-4">{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</h1>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-8 mt-2">Local Timezone</p>
 
-              <div className="mb-8 p-6 bg-blue-50/50 rounded-[2rem] border border-blue-100">
-                <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Weekly Overtime</p>
-                <p className="text-2xl font-black text-blue-600">{weeklyOT > 0 ? formatDuration(weeklyOT) : '0h 0m'}</p>
-                <p className="text-[8px] font-bold text-blue-400 uppercase mt-1">Calculated over 40h standard</p>
-              </div>
-
-              <div className="mb-8 p-6 bg-emerald-50/60 rounded-[2rem] border border-emerald-100">
-                <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Live Session</p>
-                {activeRecord && !activeRecord.checkOut ? (
-                  <>
-                    <p className="text-2xl font-black text-emerald-600">{formatLiveDuration(activeSeconds)}</p>
-                    <p className="text-[8px] font-bold text-emerald-500 uppercase mt-1">
-                      Started at {new Date(activeRecord.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-sm font-bold text-emerald-400 uppercase">No active session</p>
-                )}
-              </div>
-
-              {workMode === 'Remote' ? (
-                <div className="mb-8 p-6 bg-amber-50/60 rounded-[2rem] border border-amber-100">
-                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Remote Hours</p>
-                  <p className="text-sm font-black text-amber-600">Late policy disabled</p>
-                  <p className="text-[8px] font-bold text-amber-400 uppercase mt-1">Track 8h daily target</p>
-                </div>
-              ) : (
-                <div className="mb-8 p-6 bg-amber-50/60 rounded-[2rem] border border-amber-100">
-                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Late Allowance (Monthly)</p>
-                  <p className="text-2xl font-black text-amber-600">{lateRemaining} left</p>
-                  <p className="text-[8px] font-bold text-amber-400 uppercase mt-1">{lateCountThisMonth}/{lateAllowance} used this month</p>
-                  {lateRemaining === 0 && (
-                    <p className="text-[9px] font-black text-rose-600 mt-2">
-                      1 day salary deduction applied{dailySalary ? ` (~PKR ${dailySalary.toLocaleString()})` : ''}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {!canTrack ? (
-                <div className="p-6 bg-rose-50 rounded-[2rem] text-xs font-bold text-rose-600">Connect to Office Wi-Fi</div>
-              ) : (
-                <button
-                  onClick={activeRecord ? onCheckOut : onCheckIn}
-                  disabled={!canTrack || shiftLocked}
-                  className={`w-full py-6 rounded-[2rem] font-black text-xl shadow-xl transition-all ${activeRecord ? 'bg-rose-600 text-white shadow-rose-200' : 'premium-gradient text-white shadow-blue-200 disabled:opacity-30'}`}
-                >
-                  {activeRecord ? 'Check Out' : shiftLocked ? 'Shift Done' : 'Check In'}
-                </button>
-              )}
-
-              {canShowOvertimeToggle && (
-                <div className="mt-6 p-5 bg-slate-50/80 rounded-[2rem] border border-slate-200">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Overtime Boost</p>
-                      <p className="text-xs font-bold text-slate-600 mt-1">Max 15 min per enable</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={overtimeActive ? () => stopOvertime(false) : startOvertime}
-                      disabled={!canStartOvertime && !overtimeActive}
-                      className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${overtimeActive ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white'} disabled:opacity-40`}
-                    >
-                      {overtimeActive ? 'Stop' : 'Start'}
-                    </button>
+      {/* Dashboard Tabs Content */}
+      <div className="relative min-h-[600px]">
+        {tab === 'attendance' && (
+          <div className="animate-in fade-in slide-in-from-bottom-6 duration-700 space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+              <div className="lg:col-span-4 space-y-8">
+                <div className="glass-card rounded-[3rem] p-8 text-center relative overflow-hidden border border-white/40 shadow-2xl animate-scale-in">
+                  <div className={`absolute top-0 right-0 px-6 py-2 text-[11px] font-black uppercase tracking-widest ${workMode === 'Remote' ? 'bg-slate-900 text-white' : isWifiConnected ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                    {workMode === 'Remote' ? 'Remote Mode' : isWifiConnected ? 'Network Secure' : 'Access Restricted'}
                   </div>
-                  {!overtimeWindowAllowed && (
-                    <p className="text-[9px] font-bold text-rose-500 mt-2">
-                      Overtime allowed only between 5:00 AM and 8:00 PM.
-                    </p>
-                  )}
-                  {overtimeActive && (
-                    <p className="text-[9px] font-bold text-emerald-600 mt-2">
-                      Auto-off in {Math.max(0, Math.floor(overtimeRemainingSec / 60))}m {Math.max(0, overtimeRemainingSec % 60)}s
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="lg:col-span-8">
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 h-full overflow-hidden">
-              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-8">
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Activity Log</h3>
-                <div className="flex flex-wrap items-end gap-2">
-                  <div className="space-y-1">
-                    <label htmlFor="employee-attendance-date" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Filter Date</label>
-                    <div className="relative">
-                      <input
-                        id="employee-attendance-date"
-                        type="date"
-                        value={attendanceDateFilter}
-                        onChange={e => setAttendanceDateFilter(e.target.value)}
-                        className="px-4 py-2 pr-10 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none text-[10px] font-black text-slate-700 cursor-pointer appearance-none"
-                        ref={attendanceDateRef}
-                        onClick={() => {
-                          attendanceDateRef.current?.showPicker?.();
-                          attendanceDateRef.current?.focus();
-                        }}
-                        onFocus={() => {
-                          attendanceDateRef.current?.showPicker?.();
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          attendanceDateRef.current?.showPicker?.();
-                          attendanceDateRef.current?.focus();
-                        }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all z-10"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                      </button>
+
+                  <div className="mt-4">
+                    <h1 className="text-5xl font-black text-slate-900 tracking-tighter">
+                      {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </h1>
+                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mt-2">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+
+                    {activeRecord && (
+                      <div className="mt-6 flex items-center gap-3 px-4 py-2 bg-emerald-50 rounded-full border border-emerald-100 w-fit animate-pulse">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <span className="text-[11px] font-black text-emerald-600 uppercase tracking-widest">Live: {formatDuration(calculateDuration(activeRecord.checkIn, currentTime))}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 my-8">
+                    <div className="p-4 bg-blue-50/50 rounded-[2rem] border border-blue-100/50 group hover:bg-blue-600 transition-all duration-500 relative overflow-hidden">
+                      <div className="relative z-10">
+                        <Icon3D icon="Activity" size="xs" variant="blue" className="mb-2 group-hover:bg-white group-hover:border-white" />
+                        <p className="text-[11px] font-black text-blue-400 uppercase tracking-widest mb-1 group-hover:text-blue-100 transition-colors">Overtime</p>
+                        <p className="text-lg font-black text-blue-600 group-hover:text-white transition-colors">{weeklyOT > 0 ? formatDuration(weeklyOT) : '0h 0m'}</p>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-emerald-50/50 rounded-[2rem] border border-emerald-100/50 group hover:bg-emerald-600 transition-all duration-500 relative overflow-hidden">
+                      <div className="relative z-10">
+                        <Icon3D icon="Timer" size="xs" variant="emerald" className="mb-2 group-hover:bg-white group-hover:border-white" />
+                        <p className="text-[11px] font-black text-emerald-500 uppercase tracking-widest mb-1 group-hover:text-emerald-100 transition-colors">Live</p>
+                        <p className="text-lg font-black text-emerald-600 group-hover:text-white transition-colors">
+                          {activeRecord && !activeRecord.checkOut ? formatLiveDuration(activeSeconds) : 'No Session'}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                  {attendanceDateFilter && (
+
+                  {workMode !== 'Remote' && (
+                    <div className="mb-8 p-4 bg-amber-50/50 rounded-[2rem] border border-amber-100/50">
+                      <div className="flex items-center justify-between px-2">
+                        <div className="flex items-center gap-3">
+                          <Icon3D icon="History" size="xs" variant="amber" />
+                          <p className="text-[11px] font-black text-amber-500 uppercase tracking-widest">Late Allowance</p>
+                        </div>
+                        <p className="text-sm font-black text-amber-600">{lateRemaining} left</p>
+                      </div>
+                      <div className="w-full bg-amber-100 h-1 rounded-full mt-4 overflow-hidden">
+                        <div
+                          className="bg-amber-500 h-full transition-all duration-1000"
+                          style={{ width: `${(lateRemaining / lateAllowance) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {!canTrack && !isAttendanceExempt ? (
+                    <div className="p-6 bg-rose-50 rounded-[2rem] text-[11px] font-black text-rose-600 uppercase tracking-widest border border-rose-100">
+                      Connect to Office Wi-Fi
+                    </div>
+                  ) : isAttendanceExempt ? (
+                    <div className="p-6 bg-slate-50 rounded-[2rem] text-[11px] font-black text-slate-500 uppercase tracking-widest border border-slate-100">
+                      Attendance Not Required
+                    </div>
+                  ) : (
                     <button
-                      type="button"
-                      onClick={() => setAttendanceDateFilter('')}
-                      className="px-3 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all"
+                      onClick={activeRecord ? onCheckOut : onCheckIn}
+                      disabled={!canTrack || shiftLocked}
+                      className={`w-full py-6 rounded-[2rem] font-black text-xl shadow-[0_20px_50px_rgba(37,99,235,0.2)] transition-all duration-500 ${activeRecord
+                        ? 'bg-rose-600 text-white hover:bg-rose-700 hover:shadow-rose-500/30'
+                        : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-blue-500/30 disabled:opacity-30'
+                        }`}
                     >
-                      Clear
+                      {activeRecord ? 'Check Out' : shiftLocked ? 'Shift Done' : 'Check In'}
                     </button>
+                  )}
+
+                  {canShowOvertimeToggle && (
+                    <div className="mt-6 p-5 bg-slate-50/80 rounded-[2.5rem] border border-slate-100 transition-all hover:border-blue-200">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-left">
+                          <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">OT Boost</p>
+                          <p className="text-[11px] font-bold text-slate-500">15 min max</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={overtimeActive ? () => stopOvertime(false) : startOvertime}
+                          disabled={!canStartOvertime && !overtimeActive}
+                          className={`px-6 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all duration-500 ${overtimeActive ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white'} disabled:opacity-40`}
+                        >
+                          {overtimeActive ? 'Stop' : 'Start'}
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] text-left">
-                  <thead>
-                    <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50">
-                      <th className="pb-4">Date</th>
-                      <th className="pb-4">Check In</th>
-                      <th className="pb-4">Check Out</th>
-                      <th className="pb-4 text-right">Hours</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {sortedEmployeeRecords.map(r => (
-                      <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
-                        <td className="py-6 font-black text-slate-900">{resolveRecordDate(r)}</td>
-                        <td className="py-6">
-                          <div className="flex flex-col">
-                        <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
-                            <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
-                          </div>
-                        </td>
-                        <td className="py-6">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-black">{isValidDateValue(r.checkOut) ? formatTimeInZone(r.checkOut) : 'Active'}</span>
-                            <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>{getCheckoutStatus(r)}</span>
-                          </div>
-                        </td>
-                        <td className="py-6 font-black text-blue-600 text-right">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+              <div className="lg:col-span-8">
+                <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 h-full overflow-hidden">
+                  <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-8">
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Activity Log</h3>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="space-y-1">
+                        <label htmlFor="employee-attendance-date" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Filter Date</label>
+                        <div className="relative">
+                          <input
+                            id="employee-attendance-date"
+                            type="date"
+                            value={attendanceDateFilter}
+                            onChange={e => setAttendanceDateFilter(e.target.value)}
+                            className="px-4 py-2 pr-10 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none text-[11px] font-black text-slate-700 cursor-pointer appearance-none"
+                            ref={attendanceDateRef}
+                            onClick={() => {
+                              attendanceDateRef.current?.showPicker?.();
+                              attendanceDateRef.current?.focus();
+                            }}
+                            onFocus={() => {
+                              attendanceDateRef.current?.showPicker?.();
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              attendanceDateRef.current?.showPicker?.();
+                              attendanceDateRef.current?.focus();
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-all z-10"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                          </button>
+                        </div>
+                      </div>
+                      {attendanceDateFilter && (
+                        <button
+                          type="button"
+                          onClick={() => setAttendanceDateFilter('')}
+                          className="px-3 py-2 rounded-xl bg-slate-100 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px] text-left">
+                      <thead>
+                        <tr className="text-[11px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-50">
+                          <th className="pb-4">Date</th>
+                          <th className="pb-4">Check In</th>
+                          <th className="pb-4">Check Out</th>
+                          <th className="pb-4 text-right">Hours</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {paginatedEmployeeRecords.map(r => (
+                          <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
+                            <td className="py-6 font-black text-slate-900">{resolveRecordDate(r)}</td>
+                            <td className="py-6">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
+                                <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
+                              </div>
+                            </td>
+                            <td className="py-6">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-black">{isValidDateValue(r.checkOut) ? formatTimeInZone(r.checkOut) : 'Active'}</span>
+                                <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-500'}`}>{getCheckoutStatus(r)}</span>
+                              </div>
+                            </td>
+                            <td className="py-6 font-black text-blue-600 text-right">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {totalAttendancePages > 1 && (
+                    <div className="flex items-center justify-between mt-8 pt-6 border-t border-slate-50">
+                      <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+                        Page {attendancePage} of {totalAttendancePages}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setAttendancePage(p => Math.max(1, p - 1))}
+                          disabled={attendancePage === 1}
+                          className="px-4 py-2 rounded-xl bg-slate-50 text-[11px] font-black uppercase tracking-widest text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition-all font-black"
+                        >
+                          Prev
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAttendancePage(p => Math.min(totalAttendancePages, p + 1))}
+                          disabled={attendancePage === totalAttendancePages}
+                          className="px-4 py-2 rounded-xl bg-slate-50 text-[11px] font-black uppercase tracking-widest text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition-all font-black"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
+
             <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 mt-6">
-              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
-                <div>
-                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Monthly View</h3>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{monthSummaryLabel}</p>
+              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 mb-8 border-b border-slate-50 pb-6">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Monthly Analytics</h3>
+                  <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{monthSummaryLabel}</p>
                 </div>
-                <div className="flex items-end gap-2">
-                  <div className="space-y-1">
-                    <label htmlFor="employee-attendance-month" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Month</label>
-                    <div className="relative">
-                      <input
-                        id="employee-attendance-month"
-                        type="month"
-                        value={attendanceMonthFilter}
-                        onChange={e => setAttendanceMonthFilter(e.target.value)}
-                        className="px-4 py-2 pr-10 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none text-[10px] font-black text-slate-700 cursor-pointer appearance-none"
-                        ref={attendanceMonthRef}
-                        onClick={() => {
-                          attendanceMonthRef.current?.showPicker?.();
-                          attendanceMonthRef.current?.focus();
-                        }}
-                        onFocus={() => {
-                          attendanceMonthRef.current?.showPicker?.();
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          attendanceMonthRef.current?.showPicker?.();
-                          attendanceMonthRef.current?.focus();
-                        }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all z-10"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                      </button>
+
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-slate-50/50 p-2 rounded-[2rem] border border-slate-100">
+                    <div className="flex items-center gap-2 px-4 py-2">
+                      <label htmlFor="employee-attendance-month" className="text-[11px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Selected Month</label>
+                      <div className="relative">
+                        <input
+                          id="employee-attendance-month"
+                          type="month"
+                          value={attendanceMonthFilter}
+                          onChange={e => setAttendanceMonthFilter(e.target.value)}
+                          className="bg-white border-2 border-slate-100 rounded-xl px-4 py-2 text-[11px] font-black text-slate-700 outline-none focus:border-blue-500 transition-all cursor-pointer appearance-none min-w-[140px]"
+                          ref={attendanceMonthRef}
+                          onClick={(e) => {
+                            (e.target as any).showPicker?.();
+                          }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="px-3 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Total: {formatDuration(monthTotalHours)}
-                    </div>
-                    <div className="px-3 py-2 rounded-xl bg-emerald-50 text-[10px] font-black uppercase tracking-widest text-emerald-600">
-                      OT: {formatDuration(monthOvertimeHours)}
+
+                    <div className="flex items-center gap-2 pr-2">
+                      <div className="flex flex-col items-center px-6 py-2 bg-white rounded-2xl shadow-sm border border-slate-100">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Hours</span>
+                        <span className="text-sm font-black text-slate-900">{formatDuration(monthTotalHours)}</span>
+                      </div>
+                      <div className="flex flex-col items-center px-6 py-2 bg-emerald-50 rounded-2xl shadow-sm border border-emerald-100">
+                        <span className="text-[10px] font-black text-emerald-500/70 uppercase tracking-widest mb-1">Overtime</span>
+                        <span className="text-sm font-black text-emerald-600">{formatDuration(monthOvertimeHours)}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
               {sortedMonthRecords.length === 0 ? (
-                <div className="text-center py-10 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase text-[9px] tracking-widest">No records for this month</div>
+                <div className="text-center py-20 bg-slate-50/50 rounded-[2.5rem] border-2 border-dashed border-slate-100 flex flex-col items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-slate-300 shadow-sm">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                  </div>
+                  <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">No analytics for {monthSummaryLabel}</p>
+                </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[640px] text-left">
                     <thead>
-                      <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50">
+                      <tr className="text-[11px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-50">
                         <th className="pb-4">Date</th>
                         <th className="pb-4">Check In</th>
                         <th className="pb-4">Check Out</th>
@@ -1169,13 +1295,13 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                           <td className="py-6">
                             <div className="flex flex-col">
                               <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
-                              <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
+                              <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
                             </div>
                           </td>
                           <td className="py-6">
                             <div className="flex flex-col">
                               <span className="text-xs font-black">{isValidDateValue(r.checkOut) ? formatTimeInZone(r.checkOut) : 'Active'}</span>
-                              <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>{getCheckoutStatus(r)}</span>
+                              <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-500'}`}>{getCheckoutStatus(r)}</span>
                             </div>
                           </td>
                           <td className="py-6 font-black text-blue-600 text-right">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
@@ -1187,550 +1313,567 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
               )}
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {tab === 'leaves' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-          <div className="space-y-8">
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-8">
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Apply for Leave</h3>
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label htmlFor="leave-start" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Start Date</label>
-                    <input
-                      id="leave-start"
-                      type="date"
-                      value={leaveStartDate}
-                      onChange={e => setLeaveStartDate(e.target.value)}
-                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[10px] font-black outline-none"
-                    />
+        {tab === 'leaves' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+            <div className="space-y-8">
+              <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-8">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Apply for Leave</h3>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label htmlFor="leave-start" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Start Date</label>
+                      <input
+                        id="leave-start"
+                        type="date"
+                        value={leaveStartDate}
+                        onChange={e => setLeaveStartDate(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[11px] font-black outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="leave-end" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">End Date</label>
+                      <input
+                        id="leave-end"
+                        type="date"
+                        value={leaveEndDate}
+                        onChange={e => setLeaveEndDate(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[11px] font-black outline-none"
+                      />
+                    </div>
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="leave-end" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">End Date</label>
-                    <input
-                      id="leave-end"
-                      type="date"
-                      value={leaveEndDate}
-                      onChange={e => setLeaveEndDate(e.target.value)}
-                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[10px] font-black outline-none"
-                    />
+                    <label htmlFor="leave-application" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Leave Application (Template)</label>
+                    <textarea id="leave-application" name="leaveApplication" value={leaveApplication} onChange={e => setLeaveApplication(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-40 resize-none" />
                   </div>
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Paid leave remaining this month: {paidLeaveRemaining}</p>
+                    {paidLeaveRemaining === 0 && (
+                      <p className="text-[11px] font-black text-amber-600 uppercase tracking-widest">This request will be unpaid</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!leaveStartDate || !leaveEndDate) return;
+                      const safeStart = leaveStartDate <= leaveEndDate ? leaveStartDate : leaveEndDate;
+                      const safeEnd = leaveStartDate <= leaveEndDate ? leaveEndDate : leaveStartDate;
+                      onSubmitLeave(safeStart, safeEnd, leaveApplication);
+                      const todayStr = getLocalDateString(new Date());
+                      setLeaveStartDate(todayStr);
+                      setLeaveEndDate(todayStr);
+                      setLeaveApplication(buildLeaveTemplate(user));
+                    }}
+                    className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl"
+                  >
+                    Submit Application
+                  </button>
                 </div>
-                <div className="space-y-1">
-                  <label htmlFor="leave-application" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Leave Application (Template)</label>
-                  <textarea id="leave-application" name="leaveApplication" value={leaveApplication} onChange={e => setLeaveApplication(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-40 resize-none" />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Paid leave remaining this month: {paidLeaveRemaining}</p>
-                  {paidLeaveRemaining === 0 && (
-                    <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">This request will be unpaid</p>
-                  )}
-                </div>
-                <button
-                  onClick={() => {
-                    if (!leaveStartDate || !leaveEndDate) return;
-                    const safeStart = leaveStartDate <= leaveEndDate ? leaveStartDate : leaveEndDate;
-                    const safeEnd = leaveStartDate <= leaveEndDate ? leaveEndDate : leaveStartDate;
-                    onSubmitLeave(safeStart, safeEnd, leaveApplication);
-                    const todayStr = getLocalDateString(new Date());
-                    setLeaveStartDate(todayStr);
-                    setLeaveEndDate(todayStr);
-                    setLeaveApplication(buildLeaveTemplate(user));
-                  }}
-                  className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl"
-                >
-                  Submit Application
-                </button>
+              </div>
+
+              <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-6">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Work From Home Request</h3>
+                {user.workMode === 'Remote' ? (
+                  <p className="text-[11px] font-black text-emerald-600 uppercase tracking-widest">You are already remote.</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label htmlFor="wfh-start" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Start Date</label>
+                        <input
+                          id="wfh-start"
+                          type="date"
+                          value={wfhStartDate}
+                          onChange={e => setWfhStartDate(e.target.value)}
+                          className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[11px] font-black outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label htmlFor="wfh-end" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">End Date</label>
+                        <input
+                          id="wfh-end"
+                          type="date"
+                          value={wfhEndDate}
+                          onChange={e => setWfhEndDate(e.target.value)}
+                          className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[11px] font-black outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="wfh-reason" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Reason</label>
+                      <textarea
+                        id="wfh-reason"
+                        name="wfhReason"
+                        value={wfhReason}
+                        onChange={e => setWfhReason(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-24 resize-none"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const trimmed = wfhReason.trim();
+                        if (!trimmed || !wfhStartDate || !wfhEndDate) return;
+                        onSubmitWfhRequest(trimmed, wfhStartDate, wfhEndDate);
+                        setWfhReason('');
+                      }}
+                      className="w-full bg-slate-900 text-white py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all"
+                    >
+                      Request WFH
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-6">
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Work From Home Request</h3>
-              {user.workMode === 'Remote' ? (
-                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">You are already remote.</p>
+            <div className="space-y-6 h-[600px] overflow-y-auto pr-4">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Request Status</h3>
+              {myLeaves.length === 0 ? (
+                <div className="text-center py-20 bg-slate-50 rounded-[3rem] font-black text-slate-400 uppercase text-xs tracking-widest">No requests found</div>
               ) : (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label htmlFor="wfh-start" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Start Date</label>
-                      <input
-                        id="wfh-start"
-                        type="date"
-                        value={wfhStartDate}
-                        onChange={e => setWfhStartDate(e.target.value)}
-                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[10px] font-black outline-none"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label htmlFor="wfh-end" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">End Date</label>
-                      <input
-                        id="wfh-end"
-                        type="date"
-                        value={wfhEndDate}
-                        onChange={e => setWfhEndDate(e.target.value)}
-                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-[10px] font-black outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor="wfh-reason" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Reason</label>
-                    <textarea
-                      id="wfh-reason"
-                      name="wfhReason"
-                      value={wfhReason}
-                      onChange={e => setWfhReason(e.target.value)}
-                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-24 resize-none"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const trimmed = wfhReason.trim();
-                      if (!trimmed || !wfhStartDate || !wfhEndDate) return;
-                      onSubmitWfhRequest(trimmed, wfhStartDate, wfhEndDate);
-                      setWfhReason('');
-                    }}
-                    className="w-full bg-slate-900 text-white py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all"
-                  >
-                    Request WFH
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-6 h-[600px] overflow-y-auto pr-4">
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Request Status</h3>
-            {myLeaves.length === 0 ? (
-              <div className="text-center py-20 bg-slate-50 rounded-[3rem] font-black text-slate-300 uppercase text-xs tracking-widest">No requests found</div>
-            ) : (
-              myLeaves.map(l => (
-                <div key={l.id} className="glass-card rounded-[2rem] p-8 border-l-8 border-blue-500 hover:scale-[1.01] transition-all">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{l.startDate} - {l.endDate}</span>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : l.status === 'Cancelled' ? 'bg-slate-100 text-slate-500' : 'bg-rose-50 text-rose-600'}`}>{l.status}</span>
-                      <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.isPaid === false ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}>{l.isPaid === false ? 'Unpaid' : 'Paid'}</span>
-                      {l.status === 'Pending' && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!window.confirm('Cancel this leave request?')) return;
-                            onCancelLeave(l.id);
-                          }}
-                          className="px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all"
-                        >
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <p className="text-sm font-bold text-slate-800">"{l.reason}"</p>
-                  <p className="text-[8px] font-black text-slate-300 uppercase mt-4">Submitted on {new Date(l.submittedAt).toLocaleDateString()}</p>
-                </div>
-              ))
-            )}
-            <div className="pt-6 border-t border-slate-100">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">WFH Requests</h4>
-              {myWfhRequests.length === 0 ? (
-                <div className="text-center py-10 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase text-[9px] tracking-widest">No WFH requests</div>
-              ) : (
-                myWfhRequests.map(req => (
-                  <div key={req.id} className="glass-card rounded-[2rem] p-6 mb-3 border-l-8 border-slate-300">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{req.startDate} → {req.endDate}</span>
-                      <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600' : req.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{req.status}</span>
-                    </div>
-                    <p className="text-xs font-bold text-slate-700">"{req.reason}"</p>
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-300 mt-2">Requested on {new Date(req.submittedAt).toLocaleDateString()}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'profile' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-          <div className="lg:col-span-8 space-y-8">
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-8">
-              <div>
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Profile Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1 md:col-span-2">
-                    <label htmlFor="profile-photo" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Profile Photo (PNG/JPG)</label>
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                      <div className="w-20 h-20 rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center">
-                        {resolvedProfileImage ? (
-                          <img
-                            src={resolvedProfileImage}
-                            alt="Profile"
-                            className="w-full h-full object-cover"
-                            onError={handleProfileImageError}
-                          />
-                        ) : (
-                          <span className="text-[10px] font-black text-slate-400 uppercase">No Photo</span>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <input
-                          id="profile-photo"
-                          name="profilePhoto"
-                          type="file"
-                          accept="image/png,image/jpeg"
-                          onChange={e => handleProfileImageChange(e.target.files?.[0] || null)}
-                          className="w-full text-xs font-bold text-slate-500"
-                        />
-                        {profileImage && (
+                myLeaves.map(l => (
+                  <div key={l.id} className="glass-card rounded-[2rem] p-8 border-l-8 border-blue-500 hover:scale-[1.01] transition-all">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                      <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">{l.startDate} - {l.endDate}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : l.status === 'Cancelled' ? 'bg-slate-100 text-slate-500' : 'bg-rose-50 text-rose-600'}`}>{l.status}</span>
+                        <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest ${l.isPaid === false ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}>{l.isPaid === false ? 'Unpaid' : 'Paid'}</span>
+                        {l.status === 'Pending' && (
                           <button
                             type="button"
-                            onClick={() => setProfileImage(null)}
-                            className="text-[10px] font-black uppercase tracking-widest text-rose-600"
+                            onClick={() => {
+                              if (!window.confirm('Cancel this leave request?')) return;
+                              onCancelLeave(l.id);
+                            }}
+                            className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all"
                           >
-                            Remove Photo
+                            Cancel
                           </button>
                         )}
                       </div>
                     </div>
-                    {cropSource && (
-                      <div className="mt-4 p-4 rounded-2xl border border-slate-100 bg-slate-50 space-y-4">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Adjust Photo</p>
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                          <div
-                            className="relative rounded-2xl overflow-hidden border border-slate-200 bg-white"
-                            style={{ width: `${CROP_PREVIEW_SIZE}px`, height: `${CROP_PREVIEW_SIZE}px`, touchAction: 'none' }}
-                            onPointerDown={handleCropPointerDown}
-                            onPointerMove={handleCropPointerMove}
-                            onPointerUp={handleCropPointerUp}
-                            onPointerLeave={handleCropPointerUp}
-                          >
-                            <img
-                              src={cropSource}
-                              alt="Crop preview"
-                              className={`absolute top-0 left-0 select-none ${isDraggingCrop ? 'cursor-grabbing' : 'cursor-grab'}`}
-                              style={getCropStyle()}
-                              draggable={false}
-                            />
-                          </div>
-                          <div className="flex-1 space-y-2">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Zoom</label>
-                            <input
-                              type="range"
-                              min="0.7"
-                              max="3"
-                              step="0.01"
-                              value={cropZoom}
-                              onChange={e => setCropZoom(Number(e.target.value))}
-                              className="w-full"
-                            />
-                            <div className="flex items-center gap-3">
-                              <button
-                                type="button"
-                                onClick={applyCroppedImage}
-                                className="px-4 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest"
-                              >
-                                Apply Photo
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setCropSource(null)}
-                                className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-500 text-[10px] font-black uppercase tracking-widest"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                        <p className="text-[9px] font-bold text-slate-400">Drag to move. Zoom to fit.</p>
+                    <p className="text-sm font-bold text-slate-800">"{l.reason}"</p>
+                    <p className="text-[11px] font-black text-slate-400 uppercase mt-4">Submitted on {new Date(l.submittedAt).toLocaleDateString()}</p>
+                  </div>
+                ))
+              )}
+              <div className="pt-6 border-t border-slate-100">
+                <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-500 mb-4">WFH Requests</h4>
+                {myWfhRequests.length === 0 ? (
+                  <div className="text-center py-10 bg-slate-50 rounded-[2rem] font-black text-slate-400 uppercase text-[11px] tracking-widest">No WFH requests</div>
+                ) : (
+                  myWfhRequests.map(req => (
+                    <div key={req.id} className="glass-card rounded-[2rem] p-6 mb-3 border-l-8 border-slate-300">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">{req.startDate} → {req.endDate}</span>
+                        <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600' : req.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{req.status}</span>
                       </div>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor="profile-name" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Full Name</label>
-                    <input
-                      id="profile-name"
-                      name="name"
-                      type="text"
-                      value={profileName}
-                      onChange={e => setProfileName(e.target.value)}
-                      disabled={user.role !== Role.HR}
-                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none disabled:opacity-60"
-                    />
-                    {user.role !== Role.HR && (
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Name changes require HR.</p>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor="profile-email" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Email Address</label>
-                    <input
-                      id="profile-email"
-                      name="email"
-                      type="email"
-                      value={profileEmail}
-                      onChange={e => setProfileEmail(e.target.value)}
-                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor="profile-phone" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Phone Number</label>
-                    <input
-                      id="profile-phone"
-                      name="phone"
-                      type="text"
-                      value={profilePhone}
-                      onChange={e => setProfilePhone(e.target.value)}
-                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-              {profileError && (
-                <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">{profileError}</p>
-              )}
-              {profileSaved && (
-                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Profile updated</p>
-              )}
-              <button
-                onClick={handleProfileSave}
-                disabled={profileUploading}
-                className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl disabled:opacity-60"
-              >
-                {profileUploading ? 'Uploading Photo...' : 'Save Profile'}
-              </button>
-            </div>
-
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-10">
-              <div>
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Emergency Contact</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1">
-                    <label htmlFor="ess-emergency-name" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Contact Name</label>
-                    <input id="ess-emergency-name" name="emergencyContactName" type="text" value={editProfile.emergencyContactName} onChange={e => setEditProfile({ ...editProfile, emergencyContactName: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor="ess-emergency-relation" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Relationship</label>
-                    <input id="ess-emergency-relation" name="emergencyContactRelation" type="text" value={editProfile.emergencyContactRelation} onChange={e => setEditProfile({ ...editProfile, emergencyContactRelation: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
-                  </div>
-                  <div className="space-y-1 md:col-span-2">
-                    <label htmlFor="ess-emergency-phone" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Phone Number</label>
-                    <input id="ess-emergency-phone" name="emergencyContactPhone" type="text" value={editProfile.emergencyContactPhone} onChange={e => setEditProfile({ ...editProfile, emergencyContactPhone: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-4">
-                {saveSuccess && (
-                  <div className="bg-emerald-50 text-emerald-600 p-4 rounded-2xl text-xs font-bold text-center border border-emerald-100 animate-in fade-in slide-in-from-top-2">
-                    Profile updated successfully!
-                  </div>
+                      <p className="text-xs font-bold text-slate-700">"{req.reason}"</p>
+                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mt-2">Requested on {new Date(req.submittedAt).toLocaleDateString()}</p>
+                    </div>
+                  ))
                 )}
-                <button onClick={handleESSUpdate} className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl">
-                  Save Profile Details
-                </button>
               </div>
             </div>
           </div>
-          <div className="lg:col-span-4 space-y-6">
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 bg-blue-600 text-white shadow-blue-200 shadow-2xl">
-              <div className="flex items-start justify-between gap-4">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">Monthly Compensation</p>
-                <button
-                  type="button"
-                  onClick={() => onUpdateUser({ ...user, salaryHidden: !salaryHidden })}
-                  className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-all"
-                >
-                  {salaryHidden ? 'Show Salary' : 'Hide Salary'}
-                </button>
-              </div>
-              <h2 className="text-4xl font-black mt-2">{salaryHidden ? 'Hidden' : `PKR ${monthlySalary.toLocaleString()}`}</h2>
-              <div className="mt-6 pt-6 border-t border-white/10 flex items-center justify-between">
-                <div>
-                  <p className="text-[8px] font-black uppercase tracking-widest opacity-60">Status</p>
-                  <p className="text-[10px] font-bold mt-1">Verified Base</p>
-                </div>
-                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                </div>
-              </div>
-            </div>
+        )}
 
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">
-              <div className="flex items-start justify-between gap-4">
+        {tab === 'profile' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+            <div className="lg:col-span-8 space-y-8">
+              <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-8">
                 <div>
-                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Salary Slip</h3>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{monthLabel}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onUpdateUser({ ...user, salaryHidden: !salaryHidden })}
-                    className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
-                  >
-                    {salaryHidden ? 'Show' : 'Hide'}
-                  </button>
-                  {!salaryHidden && (
-                    <button
-                      type="button"
-                      onClick={downloadSalarySlip}
-                      className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition-all"
-                    >
-                      Download
-                    </button>
-                  )}
-                </div>
-              </div>
-              {salaryHidden ? (
-                <div className="mt-6 rounded-2xl border border-slate-100 bg-slate-50 p-6 text-center">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Salary slip hidden</p>
-                  <p className="text-[10px] font-bold text-slate-500 mt-2">Use “Show” to view details.</p>
-                </div>
-              ) : (
-                <>
-                  <div className="mt-6 space-y-3 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-500">Base Salary</span>
-                      <span className="font-black text-slate-900">{formatCurrency(monthlySalary)}</span>
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Profile Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-1 md:col-span-2">
+                      <label htmlFor="profile-photo" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Profile Photo (PNG/JPG)</label>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                        <div className="w-20 h-20 rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center">
+                          {resolvedProfileImage ? (
+                            <img
+                              src={resolvedProfileImage}
+                              alt="Profile"
+                              className="w-full h-full object-cover"
+                              onError={handleProfileImageError}
+                            />
+                          ) : (
+                            <span className="text-[11px] font-black text-slate-500 uppercase">No Photo</span>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <input
+                            id="profile-photo"
+                            name="profilePhoto"
+                            type="file"
+                            accept="image/png,image/jpeg"
+                            onChange={e => handleProfileImageChange(e.target.files?.[0] || null)}
+                            className="w-full text-xs font-bold text-slate-500"
+                          />
+                          {profileImage && (
+                            <button
+                              type="button"
+                              onClick={() => setProfileImage(null)}
+                              className="text-[11px] font-black uppercase tracking-widest text-rose-600"
+                            >
+                              Remove Photo
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {cropSource && (
+                        <div className="mt-4 p-4 rounded-2xl border border-slate-100 bg-slate-50 space-y-4">
+                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Adjust Photo</p>
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                            <div
+                              className="relative rounded-2xl overflow-hidden border border-slate-200 bg-white"
+                              style={{ width: `${CROP_PREVIEW_SIZE}px`, height: `${CROP_PREVIEW_SIZE}px`, touchAction: 'none' }}
+                              onPointerDown={handleCropPointerDown}
+                              onPointerMove={handleCropPointerMove}
+                              onPointerUp={handleCropPointerUp}
+                              onPointerLeave={handleCropPointerUp}
+                            >
+                              <img
+                                src={cropSource}
+                                alt="Crop preview"
+                                className={`absolute top-0 left-0 select-none ${isDraggingCrop ? 'cursor-grabbing' : 'cursor-grab'}`}
+                                style={getCropStyle()}
+                                draggable={false}
+                              />
+                            </div>
+                            <div className="flex-1 space-y-2">
+                              <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Zoom</label>
+                              <input
+                                type="range"
+                                min="0.7"
+                                max="3"
+                                step="0.01"
+                                value={cropZoom}
+                                onChange={e => setCropZoom(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <div className="flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={applyCroppedImage}
+                                  className="px-4 py-2 rounded-xl bg-blue-600 text-white text-[11px] font-black uppercase tracking-widest"
+                                >
+                                  Apply Photo
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setCropSource(null)}
+                                  className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-500 text-[11px] font-black uppercase tracking-widest"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          <p className="text-[11px] font-bold text-slate-500">Drag to move. Zoom to fit.</p>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-500">Unpaid Leaves ({unpaidLeaveDays} days)</span>
-                      <span className="font-black text-rose-500">- {formatCurrency(leaveDeduction)}</span>
+                    <div className="space-y-1">
+                      <label htmlFor="profile-name" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Full Name</label>
+                      <input
+                        id="profile-name"
+                        name="name"
+                        type="text"
+                        value={profileName}
+                        onChange={e => setProfileName(e.target.value)}
+                        disabled={user.role !== Role.HR}
+                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none disabled:opacity-60"
+                      />
+                      {user.role !== Role.HR && (
+                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-2">Name changes require HR.</p>
+                      )}
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-500">Absents (auto)</span>
-                      <span className="font-black text-slate-700">{absentDaysThisMonth} days</span>
+                    <div className="space-y-1">
+                      <label htmlFor="profile-email" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Email Address</label>
+                      <input
+                        id="profile-email"
+                        name="email"
+                        type="email"
+                        value={profileEmail}
+                        onChange={e => setProfileEmail(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
+                      />
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-500">Early Checkout ({earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</span>
-                      <span className="font-black text-rose-500">- {formatCurrency(earlyCheckoutDeduction)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-500">Overtime ({overtimeHoursThisMonth.toFixed(2)} hrs)</span>
-                      <span className="font-black text-emerald-600">+ {formatCurrency(overtimePay)}</span>
-                    </div>
-                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                      <span className="font-bold text-slate-600">Taxable Salary</span>
-                      <span className="font-black text-slate-900">{formatCurrency(taxableSalary)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-500">Tax (PK progressive)</span>
-                      <span className="font-black text-amber-600">- {formatCurrency(monthlyTax)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-600">Salary After Tax</span>
-                      <span className="font-black text-slate-900">{formatCurrency(salaryAfterTax)}</span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                      <span className="font-black text-slate-900">Salary with Overtime</span>
-                      <span className="font-black text-blue-600">{formatCurrency(netPay)}</span>
+                    <div className="space-y-1">
+                      <label htmlFor="profile-phone" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Phone Number</label>
+                      <input
+                        id="profile-phone"
+                        name="phone"
+                        type="text"
+                        value={profilePhone}
+                        onChange={e => setProfilePhone(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
+                      />
                     </div>
                   </div>
-                  <p className="mt-5 text-[8px] font-bold text-slate-300 uppercase text-center">Overtime is not taxed</p>
-                </>
-              )}
-            </div>
+                </div>
+                {profileError && (
+                  <p className="text-[11px] font-black text-rose-500 uppercase tracking-widest">{profileError}</p>
+                )}
+                {profileSaved && (
+                  <p className="text-[11px] font-black text-emerald-600 uppercase tracking-widest">Profile updated</p>
+                )}
+                <button
+                  onClick={handleProfileSave}
+                  disabled={profileUploading}
+                  className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl disabled:opacity-60"
+                >
+                  {profileUploading ? 'Uploading Photo...' : 'Save Profile'}
+                </button>
+              </div>
 
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Tax Documents</h3>
-              <div className="space-y-3">
-                {['Form 16 - 2024', 'W-2 Statement 2024', 'Tax Projection 2025'].map(doc => (
-                  <div
-                    key={doc}
-                    onClick={() => downloadTaxDoc(doc)}
-                    className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl group cursor-pointer hover:bg-blue-50 transition-all border border-transparent hover:border-blue-100"
+              <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-10">
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Emergency Contact</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-1">
+                      <label htmlFor="ess-emergency-name" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Contact Name</label>
+                      <input id="ess-emergency-name" name="emergencyContactName" type="text" value={editProfile.emergencyContactName} onChange={e => setEditProfile({ ...editProfile, emergencyContactName: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="ess-emergency-relation" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Relationship</label>
+                      <input id="ess-emergency-relation" name="emergencyContactRelation" type="text" value={editProfile.emergencyContactRelation} onChange={e => setEditProfile({ ...editProfile, emergencyContactRelation: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <label htmlFor="ess-emergency-phone" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Phone Number</label>
+                      <input id="ess-emergency-phone" name="emergencyContactPhone" type="text" value={editProfile.emergencyContactPhone} onChange={e => setEditProfile({ ...editProfile, emergencyContactPhone: e.target.value })} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  {saveSuccess && (
+                    <div className="bg-emerald-50 text-emerald-600 p-4 rounded-2xl text-xs font-bold text-center border border-emerald-100 animate-in fade-in slide-in-from-top-2">
+                      Profile updated successfully!
+                    </div>
+                  )}
+                  <button onClick={handleESSUpdate} className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl">
+                    Save Profile Details
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="lg:col-span-4 space-y-6">
+              <div className="rounded-[3rem] p-6 sm:p-8 2xl:p-10 bg-blue-600 text-white shadow-blue-200 shadow-2xl relative overflow-hidden">
+                <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-white/10 blur-[60px] rounded-full" />
+                <div className="relative z-10">
+                  <div className="flex items-start justify-between gap-4">
+                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-white/70">Monthly Compensation</p>
+                    <button
+                      type="button"
+                      onClick={() => onUpdateUser({ ...user, salaryHidden: !salaryHidden })}
+                      className="text-[11px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 transition-all text-white"
+                    >
+                      {salaryHidden ? 'Show Salary' : 'Hide Salary'}
+                    </button>
+                  </div>
+                  <h2 className="text-4xl font-black mt-2">{salaryHidden ? 'Hidden' : `PKR ${monthlySalary.toLocaleString()}`}</h2>
+                  <div className="mt-6 pt-6 border-t border-white/10 flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-widest opacity-60">Status</p>
+                      <p className="text-[11px] font-bold mt-1">Verified Base</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Salary Slip</h3>
+                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mt-1">{monthLabel}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onUpdateUser({ ...user, salaryHidden: !salaryHidden })}
+                      className="text-[11px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
+                    >
+                      {salaryHidden ? 'Show' : 'Hide'}
+                    </button>
+                    {!salaryHidden && (
+                      <button
+                        type="button"
+                        onClick={downloadSalarySlip}
+                        className="text-[11px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition-all"
+                      >
+                        Download
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {salaryHidden ? (
+                  <div className="mt-6 rounded-2xl border border-slate-100 bg-slate-50 p-6 text-center">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Salary slip hidden</p>
+                    <p className="text-[11px] font-bold text-slate-500 mt-2">Use “Show” to view details.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mt-6 space-y-3 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-500">Base Salary</span>
+                        <span className="font-black text-slate-900">{formatCurrency(monthlySalary)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-500">Unpaid Leaves ({unpaidLeaveDays} days)</span>
+                        <span className="font-black text-rose-500">- {formatCurrency(leaveDeduction)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-500">Absents (auto)</span>
+                        <span className="font-black text-slate-700">{absentDaysThisMonth} days</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-500">Early Checkout ({earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</span>
+                        <span className="font-black text-rose-500">- {formatCurrency(earlyCheckoutDeduction)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-500">Overtime ({overtimeHoursThisMonth.toFixed(2)} hrs)</span>
+                        <span className="font-black text-emerald-600">+ {formatCurrency(overtimePay)}</span>
+                      </div>
+                      <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                        <span className="font-bold text-slate-600">Taxable Salary</span>
+                        <span className="font-black text-slate-900">{formatCurrency(taxableSalary)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-500">Tax (PK progressive)</span>
+                        <span className="font-black text-amber-600">- {formatCurrency(monthlyTax)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-600">Salary After Tax</span>
+                        <span className="font-black text-slate-900">{formatCurrency(salaryAfterTax)}</span>
+                      </div>
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                        <span className="font-black text-slate-900">Salary with Overtime</span>
+                        <span className="font-black text-blue-600">{formatCurrency(netPay)}</span>
+                      </div>
+                    </div>
+                    <p className="mt-5 text-[11px] font-bold text-slate-400 uppercase text-center">Overtime is not taxed</p>
+                  </>
+                )}
+              </div>
+
+              <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Tax Documents</h3>
+                <div className="space-y-3">
+                  {['Form 16 - 2024', 'W-2 Statement 2024', 'Tax Projection 2025'].map(doc => (
+                    <div
+                      key={doc}
+                      onClick={() => downloadTaxDoc(doc)}
+                      className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl group cursor-pointer hover:bg-blue-50 transition-all border border-transparent hover:border-blue-100"
+                    >
+                      <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">{doc}</span>
+                      <svg className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-6 text-[11px] font-bold text-slate-400 uppercase text-center">Digitized Filing Cabinet v1.0</p>
+              </div>
+
+              <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Security Key</h3>
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label htmlFor="profile-password" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">New Password</label>
+                    <input
+                      id="profile-password"
+                      name="newPassword"
+                      type="password"
+                      value={passwordInput}
+                      onChange={e => setPasswordInput(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="profile-password-confirm" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Confirm Password</label>
+                    <input
+                      id="profile-password-confirm"
+                      name="confirmPassword"
+                      type="password"
+                      value={confirmPasswordInput}
+                      onChange={e => setConfirmPasswordInput(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
+                    />
+                  </div>
+                  {passwordError && (
+                    <p className="text-[11px] font-black text-rose-500 uppercase tracking-widest">{passwordError}</p>
+                  )}
+                  {passwordSuccess && (
+                    <p className="text-[11px] font-black text-emerald-600 uppercase tracking-widest">Password updated</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handlePasswordReset}
+                    className="w-full premium-gradient text-white py-4 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl"
                   >
-                    <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight">{doc}</span>
-                    <svg className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Update Password
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === 'checklists' && (
+          <div className="max-w-3xl mx-auto w-full">
+            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-10">
+              <div className="text-center">
+                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-2">{myChecklist.type} Checklist</h3>
+                <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Complete these steps for your corporate clearance</p>
+              </div>
+
+              <div className="space-y-4">
+                {myChecklist.items.map(item => (
+                  <div
+                    key={item.id}
+                    onClick={() => toggleChecklistItem(item.id)}
+                    className={`flex items-center space-x-5 p-6 rounded-[2rem] border-2 cursor-pointer transition-all ${item.completed ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}
+                  >
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${item.completed ? 'bg-emerald-500 text-white' : 'bg-white border-2 border-slate-200'}`}>
+                      {item.completed && <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>}
+                    </div>
+                    <span className={`text-xs font-black uppercase tracking-tight ${item.completed ? 'text-emerald-700 line-through' : 'text-slate-700'}`}>{item.label}</span>
                   </div>
                 ))}
               </div>
-              <p className="mt-6 text-[8px] font-bold text-slate-300 uppercase text-center">Digitized Filing Cabinet v1.0</p>
-            </div>
 
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Security Key</h3>
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <label htmlFor="profile-password" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">New Password</label>
-                  <input
-                    id="profile-password"
-                    name="newPassword"
-                    type="password"
-                    value={passwordInput}
-                    onChange={e => setPasswordInput(e.target.value)}
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
-                  />
+              <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Progress</span>
+                  <p className="text-lg font-black text-slate-900">{Math.round((myChecklist.items.filter(i => i.completed).length / myChecklist.items.length) * 100)}% Complete</p>
                 </div>
-                <div className="space-y-1">
-                  <label htmlFor="profile-password-confirm" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Confirm Password</label>
-                  <input
-                    id="profile-password-confirm"
-                    name="confirmPassword"
-                    type="password"
-                    value={confirmPasswordInput}
-                    onChange={e => setConfirmPasswordInput(e.target.value)}
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
-                  />
+                <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500 transition-all duration-500"
+                    style={{ width: `${(myChecklist.items.filter(i => i.completed).length / myChecklist.items.length) * 100}%` }}
+                  ></div>
                 </div>
-                {passwordError && (
-                  <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">{passwordError}</p>
-                )}
-                {passwordSuccess && (
-                  <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Password updated</p>
-                )}
-                <button
-                  type="button"
-                  onClick={handlePasswordReset}
-                  className="w-full premium-gradient text-white py-4 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl"
-                >
-                  Update Password
-                </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {tab === 'checklists' && (
-        <div className="max-w-3xl mx-auto w-full">
-          <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 space-y-10">
-            <div className="text-center">
-              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-2">{myChecklist.type} Checklist</h3>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Complete these steps for your corporate clearance</p>
-            </div>
-
-            <div className="space-y-4">
-              {myChecklist.items.map(item => (
-                <div
-                  key={item.id}
-                  onClick={() => toggleChecklistItem(item.id)}
-                  className={`flex items-center space-x-5 p-6 rounded-[2rem] border-2 cursor-pointer transition-all ${item.completed ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}
-                >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${item.completed ? 'bg-emerald-500 text-white' : 'bg-white border-2 border-slate-200'}`}>
-                    {item.completed && <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>}
-                  </div>
-                  <span className={`text-xs font-black uppercase tracking-tight ${item.completed ? 'text-emerald-700 line-through' : 'text-slate-700'}`}>{item.label}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Progress</span>
-                <p className="text-lg font-black text-slate-900">{Math.round((myChecklist.items.filter(i => i.completed).length / myChecklist.items.length) * 100)}% Complete</p>
-              </div>
-              <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 transition-all duration-500"
-                  style={{ width: `${(myChecklist.items.filter(i => i.completed).length / myChecklist.items.length) * 100}%` }}
-                ></div>
-              </div>
-            </div>
+        {tab === 'tasks' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <TaskBoard
+              tasks={tasks}
+              users={users}
+              currentUser={user}
+              isManager={isManager}
+              onAddTask={onAddTask}
+              onUpdateTask={onUpdateTask}
+              onDeleteTask={onDeleteTask}
+            />
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };

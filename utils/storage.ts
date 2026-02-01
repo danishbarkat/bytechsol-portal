@@ -1,4 +1,4 @@
-import { AttendanceRecord, LeaveRequest, ESSProfile, UserChecklist, User, Role, WorkFromHomeRequest } from '../types';
+import { AttendanceRecord, LeaveRequest, ESSProfile, UserChecklist, User, Role, WorkFromHomeRequest, Task } from '../types';
 import { APP_CONFIG } from '../constants';
 import { getShiftAdjustedMinutes, getLocalTimeMinutes } from './dates';
 import { supabase, isSupabaseConfigured } from './supabase';
@@ -9,6 +9,7 @@ const ESS_KEY = 'bytechsol_ess';
 const CHECKLISTS_KEY = 'bytechsol_checklists';
 const USERS_KEY = 'bytechsol_users';
 const WFH_KEY = 'bytechsol_wfh_requests';
+const TASKS_KEY = 'bytechsol_tasks';
 
 const safeJsonParse = <T>(value: string | null, fallback: T): T => {
   if (!value) return fallback;
@@ -200,6 +201,28 @@ const mapChecklistToDb = (checklist: UserChecklist) => ({
   user_id: checklist.userId,
   type: checklist.type,
   items: checklist.items
+});
+
+const mapTaskFromDb = (row: Record<string, any>): Task => ({
+  id: String(pickValue(row, ['id'], '')),
+  title: String(pickValue(row, ['title'], '')),
+  description: String(pickValue(row, ['description'], '')),
+  assigneeId: String(pickValue(row, ['assignee_id', 'assigneeId'], '')),
+  assignerId: String(pickValue(row, ['assigner_id', 'assignerId'], '')),
+  status: pickValue(row, ['status'], 'Todo'),
+  dueDate: String(pickValue(row, ['due_date', 'dueDate'], '')),
+  createdAt: String(pickValue(row, ['created_at', 'createdAt'], ''))
+});
+
+const mapTaskToDb = (task: Task) => ({
+  id: task.id,
+  title: task.title,
+  description: task.description,
+  assignee_id: task.assigneeId,
+  assigner_id: task.assignerId,
+  status: task.status,
+  due_date: task.dueDate,
+  created_at: task.createdAt
 });
 
 const logSupabaseError = (scope: string, error: unknown) => {
@@ -446,6 +469,29 @@ export const saveUsers = async (users: User[]) => {
   }
 };
 
+export const loadTasks = async (): Promise<Task[]> => {
+  const local = loadLocal<Task[]>(TASKS_KEY, []);
+  if (!isSupabaseConfigured || !supabase) return local;
+  const { data, error } = await supabase.from('tasks').select('*');
+  if (error || !data) {
+    logSupabaseError('loadTasks', error);
+    return local;
+  }
+  const mapped = data.map(mapTaskFromDb);
+  saveLocal(TASKS_KEY, mapped);
+  return mapped;
+};
+
+export const saveTasks = async (tasks: Task[]) => {
+  saveLocal(TASKS_KEY, tasks);
+  if (!isSupabaseConfigured || !supabase) return;
+  const payload = tasks.map(mapTaskToDb);
+  const { error } = await supabase.from('tasks').upsert(payload, { onConflict: 'id' });
+  if (error) {
+    logSupabaseError('saveTasks', error);
+  }
+};
+
 export const updateCredentialsByEmployeeId = async (
   employeeId: string,
   password?: string,
@@ -530,6 +576,20 @@ export const fetchChecklistsRemote = async (): Promise<UserChecklist[]> => {
   return mapped;
 };
 
+export const fetchTasksRemote = async (): Promise<Task[]> => {
+  if (!isSupabaseConfigured || !supabase) {
+    return loadLocal<Task[]>(TASKS_KEY, []);
+  }
+  const { data, error } = await supabase.from('tasks').select('*');
+  if (error || !data) {
+    logSupabaseError('fetchTasksRemote', error);
+    return loadLocal<Task[]>(TASKS_KEY, []);
+  }
+  const mapped = data.map(mapTaskFromDb);
+  saveLocal(TASKS_KEY, mapped);
+  return mapped;
+};
+
 export const fetchUsersRemote = async (): Promise<User[]> => {
   if (!isSupabaseConfigured || !supabase) {
     return loadLocal<User[]>(USERS_KEY, []);
@@ -545,7 +605,7 @@ export const fetchUsersRemote = async (): Promise<User[]> => {
 };
 
 export const subscribeToTableChanges = (table: string, onChange: () => void) => {
-  if (!isSupabaseConfigured || !supabase) return () => {};
+  if (!isSupabaseConfigured || !supabase) return () => { };
   const channel = supabase
     .channel(`realtime:${table}`)
     .on(
@@ -578,6 +638,13 @@ export const deleteAttendanceRecord = async (recordId: string) => {
   if (error) {
     logSupabaseError('deleteAttendanceRecord', error);
   }
+};
+
+export const calculateDuration = (start: string | Date, end: string | Date): number => {
+  const startDate = typeof start === 'string' ? new Date(start) : start;
+  const endDate = typeof end === 'string' ? new Date(end) : end;
+  if (!startDate.getTime() || !endDate.getTime()) return 0;
+  return Math.max(0, (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60));
 };
 
 export const formatDuration = (hours: number): string => {

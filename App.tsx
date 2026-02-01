@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { User, AttendanceRecord, Role, CheckInStatus, LeaveRequest, ESSProfile, UserChecklist, WorkFromHomeRequest, AppNotification } from './types';
+import { User, AttendanceRecord, Role, CheckInStatus, LeaveRequest, ESSProfile, UserChecklist, WorkFromHomeRequest, AppNotification, Task } from './types';
 import { APP_CONFIG, MOCK_USERS } from './constants';
 import logoUrl from './asset/public/logo.svg';
 import {
@@ -26,7 +26,10 @@ import {
   deleteUserData,
   deleteAttendanceRecord,
   upsertAttendanceRecord,
-  updateCredentialsByEmployeeId
+  updateCredentialsByEmployeeId,
+  loadTasks,
+  saveTasks,
+  fetchTasksRemote
 } from './utils/storage';
 import {
   adminUpsertAttendanceRecord,
@@ -385,6 +388,19 @@ const ensureCoreUsers = (list: User[]) => {
     changed = true;
   });
 
+  // Enforce CFO rights
+  if (APP_CONFIG.CFO_EMPLOYEE_ID) {
+    const cfoId = normalizeEmployeeId(APP_CONFIG.CFO_EMPLOYEE_ID);
+    merged.forEach((u, index) => {
+      if (u.employeeId && normalizeEmployeeId(u.employeeId) === cfoId) {
+        if (u.role !== Role.CEO) {
+          merged[index] = { ...u, role: Role.CEO };
+          changed = true;
+        }
+      }
+    });
+  }
+
   return { merged, changed };
 };
 
@@ -394,6 +410,7 @@ const App: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [loginView, setLoginView] = useState<'login' | 'leave' | 'wfh'>('login');
   const [requestEmployeeId, setRequestEmployeeId] = useState('');
   const [requestName, setRequestName] = useState('');
   const [requestReason, setRequestReason] = useState('');
@@ -409,6 +426,7 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [wfhRequests, setWfhRequests] = useState<WorkFromHomeRequest[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isWifiConnected, setIsWifiConnected] = useState(false);
   const [ipStatus, setIpStatus] = useState<'checking' | 'allowed' | 'blocked'>('checking');
@@ -727,6 +745,16 @@ const App: React.FC = () => {
       const data = await fetchChecklistsRemote();
       if (active) setChecklists(data);
     };
+    const refreshTasks = async () => {
+      if (user?.role === Role.CEO || user?.role === Role.SUPERADMIN || (user?.employeeId && APP_CONFIG.TASK_MANAGERS_EMPLOYEE_IDS.includes(normalizeEmployeeId(user.employeeId)))) {
+        const data = await fetchTasksRemote();
+        if (active) setTasks(data);
+      } else {
+        // Employees fetch all tasks too, so they can see tasks assigned TO them
+        const data = await fetchTasksRemote();
+        if (active) setTasks(data);
+      }
+    };
 
     const unsubscribers = [
       subscribeToTableChanges('users', refreshUsers),
@@ -734,7 +762,8 @@ const App: React.FC = () => {
       subscribeToTableChanges('leave_requests', refreshLeaves),
       subscribeToTableChanges('wfh_requests', refreshWfh),
       subscribeToTableChanges('ess_profiles', refreshEss),
-      subscribeToTableChanges('checklists', refreshChecklists)
+      subscribeToTableChanges('checklists', refreshChecklists),
+      subscribeToTableChanges('tasks', refreshTasks)
     ];
 
     return () => {
@@ -1017,6 +1046,16 @@ const App: React.FC = () => {
     const [cutoffHour, cutoffMinute] = APP_CONFIG.FRIDAY_LATE_EXEMPT_CUTOFF.split(':').map(Number);
     const cutoffBase = cutoffHour * 60 + cutoffMinute;
     const cutoffAdjusted = isOvernight && cutoffBase < endTotal ? cutoffBase + 24 * 60 : cutoffBase;
+    const generalExemptIds = (APP_CONFIG as any).LATE_EXEMPT_EMPLOYEE_IDS || [];
+    const isGeneralExempt = Boolean(userId) && generalExemptIds.includes(userId);
+    const [genCutoffHour, genCutoffMinute] = ((APP_CONFIG as any).LATE_EXEMPT_CUTOFF || "20:00").split(':').map(Number);
+    const genCutoffBase = genCutoffHour * 60 + genCutoffMinute;
+    const genCutoffAdjusted = isOvernight && genCutoffBase < endTotal ? genCutoffBase + 24 * 60 : genCutoffBase;
+
+    if (isGeneralExempt && currentMinutes <= genCutoffAdjusted) {
+      return 'On-Time';
+    }
+
     if (isFriday && isExemptUser && currentMinutes <= cutoffAdjusted) {
       return 'On-Time';
     }
@@ -1386,7 +1425,7 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
         <div className="bg-white rounded-[2.5rem] shadow-2xl p-10 border border-slate-100 text-center space-y-3">
-          <p className="text-xs font-black uppercase tracking-widest text-slate-400">Network Check</p>
+          <p className="text-xs font-black uppercase tracking-widest text-slate-500">Network Check</p>
           <p className="text-lg font-black text-slate-900">Verifying office connection...</p>
         </div>
       </div>
@@ -1416,195 +1455,315 @@ const App: React.FC = () => {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
-        <div className="max-w-lg w-full">
-          <div className="bg-white rounded-[3rem] shadow-2xl p-12 border border-slate-100 space-y-10">
-            <div className="text-center">
-              <img src={logoUrl} alt="BytechSol" className="mx-auto h-14 w-auto mb-4" />
-              <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.3em]">Corporate Access Portal</p>
-            </div>
-            {ipStatus === 'blocked' && (
-              <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4 text-center">
-                <p className="text-[10px] font-black uppercase tracking-widest text-amber-500">Office Wi-Fi Required</p>
-                <p className="text-[10px] font-bold text-amber-600 mt-2">Remote staff can still log in.</p>
-              </div>
-            )}
-            <form className="space-y-6" onSubmit={handleLogin}>
-              <div className="space-y-1">
-                <label htmlFor="login-employee-id" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label>
-                <div className="flex items-center w-full px-4 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus-within:border-blue-500 outline-none font-bold text-slate-800 transition-all">
-                  <span className="text-slate-400 font-black mr-2">BS-</span>
-                  <input
-                    id="login-employee-id"
-                    name="employeeId"
-                    type="text"
-                    required
-                    value={employeeIdInput}
-                    onChange={e => setEmployeeIdInput(e.target.value)}
-                    className="flex-1 bg-transparent outline-none font-bold text-slate-800"
-                    placeholder="XXXX001"
-                    autoComplete="username"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label htmlFor="login-password" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Security Key / PIN</label>
-                <div className="relative">
-                  <input
-                    id="login-password"
-                    name="password"
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    className="w-full px-6 py-5 pr-20 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 transition-all"
-                    placeholder="Security Key or 4-digit PIN"
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(prev => !prev)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-all"
-                  >
-                    {showPassword ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                <input
-                  id="login-remember"
-                  name="rememberMe"
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={e => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-200 text-blue-600 focus:ring-blue-500"
-                />
-                Remember Me
-              </label>
-              {error && <p className="text-red-500 text-xs font-bold bg-red-50 p-4 rounded-xl text-center border border-red-100">{error}</p>}
-              <button type="submit" className="w-full premium-gradient text-white py-5 rounded-2xl font-black text-lg shadow-xl hover:opacity-90 transition-all">Authorize Login</button>
-            </form>
+      <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 bg-white relative overflow-hidden font-sans">
+        {/* Subtle Background Pattern */}
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#2563eb 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
 
-            <div className="rounded-[2.5rem] bg-slate-50 border border-slate-100 p-6 space-y-4">
-                <div className="space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Emergency Requests</p>
-                  <p className="text-[10px] font-bold text-slate-500">Send a WFH access or leave request for today.</p>
+        <div className="max-w-[1100px] w-full grid grid-cols-1 lg:grid-cols-2 gap-12 items-center relative z-10">
+          {/* Left Side: Branding & Info */}
+          <div className="hidden lg:flex flex-col space-y-10 animate-fade-up">
+            <div className="space-y-6">
+              <div className="p-4 bg-white rounded-3xl w-fit shadow-xl shadow-blue-500/10 border border-blue-50">
+                <img src={logoUrl} alt="BytechSol" className="h-20 w-auto transition-transform hover:scale-105" />
+              </div>
+              <div className="space-y-4">
+                <h1 className="text-6xl font-black text-slate-900 tracking-tighter leading-[0.9]">
+                  Enterprise <br />
+                  <span className="text-blue-600">Attendance</span> <br />
+                  <span className="text-slate-800">Portal</span>
+                </h1>
+                <p className="text-slate-500 text-xl max-w-md font-bold leading-relaxed">
+                  Advanced workforce coordination with peak performance analytics.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-6">
+              <div className="bg-blue-50/50 p-8 rounded-[2.5rem] border border-blue-100/50 space-y-4">
+                <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                 </div>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label htmlFor="request-start" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Start Date</label>
+                <div>
+                  <p className="text-sm font-black text-slate-900 uppercase tracking-widest">Secure Access</p>
+                  <p className="text-xs text-slate-500 font-bold mt-1">Multi-layered identity protection</p>
+                </div>
+              </div>
+              <div className="bg-emerald-50/50 p-8 rounded-[2.5rem] border border-emerald-100/50 space-y-4">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-600 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                </div>
+                <div>
+                  <p className="text-sm font-black text-slate-900 uppercase tracking-widest">Real-time Sync</p>
+                  <p className="text-xs text-slate-500 font-bold mt-1">Instant attendance logging</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Side: Login Form */}
+          <div className="space-y-6 animate-scale-in">
+            <div className="bg-blue-600 rounded-[3.5rem] p-8 sm:p-14 space-y-10 shadow-[0_30px_100px_-20px_rgba(37,99,235,0.4)] relative overflow-hidden border border-blue-500/30">
+              {/* Subtle Card Glow */}
+              <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-[0.05] blur-[80px] -mr-32 -mt-32 rounded-full" />
+
+              <div className="lg:hidden text-center space-y-4 mb-10">
+                <div className="inline-block p-3 bg-white rounded-2xl shadow-lg">
+                  <img src={logoUrl} alt="BytechSol" className="h-10 w-auto" />
+                </div>
+                <h2 className="text-3xl font-black text-white uppercase tracking-tighter">Login Portal</h2>
+              </div>
+
+              <div className="space-y-3 text-center lg:text-left">
+                <h3 className="text-xs font-black text-blue-200 uppercase tracking-[0.3em] ml-1">{loginView === 'login' ? 'Security Clearance' : 'Remote Request'}</h3>
+                <p className="text-4xl font-black text-white tracking-tighter">
+                  {loginView === 'login' ? 'Welcome Back' : loginView === 'leave' ? 'Leave Portal' : 'WFH Portal'}
+                </p>
+              </div>
+
+              {ipStatus === 'blocked' && (
+                <div className="rounded-2xl bg-white/10 border border-white/20 p-5 text-center">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-white">Office Access Only</p>
+                  <p className="text-[11px] font-bold text-blue-100 mt-1">Connect to Office Wi-Fi to authorize session.</p>
+                </div>
+              )}
+
+              {loginView === 'login' ? (
+                <form className="space-y-7" onSubmit={handleLogin}>
+                  <div className="space-y-3">
+                    <label htmlFor="login-employee-id" className="text-[11px] font-black text-blue-100 uppercase tracking-widest ml-6">Employee ID Code</label>
+                    <div className="group flex items-center w-full px-8 py-5 rounded-[2.5rem] bg-white border-4 border-transparent focus-within:border-blue-300 transition-all shadow-xl">
+                      <span className="text-blue-600 font-black mr-2 text-sm italic">BS-</span>
                       <input
-                        id="request-start"
-                        type="date"
-                        value={requestStartDate}
-                        onChange={e => {
-                          setRequestStartDate(e.target.value);
-                          setRequestError(null);
-                          setRequestFeedback(null);
-                        }}
-                        className="w-full bg-white border-2 border-transparent focus:border-blue-500 p-3 rounded-2xl text-[10px] font-black outline-none"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label htmlFor="request-end" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">End Date</label>
-                      <input
-                        id="request-end"
-                        type="date"
-                        value={requestEndDate}
-                        onChange={e => {
-                          setRequestEndDate(e.target.value);
-                          setRequestError(null);
-                          setRequestFeedback(null);
-                        }}
-                        className="w-full bg-white border-2 border-transparent focus:border-blue-500 p-3 rounded-2xl text-[10px] font-black outline-none"
+                        id="login-employee-id"
+                        name="employeeId"
+                        type="text"
+                        required
+                        value={employeeIdInput}
+                        onChange={e => setEmployeeIdInput(e.target.value)}
+                        className="flex-1 bg-transparent outline-none font-black text-slate-900 placeholder:text-slate-300 text-sm"
+                        placeholder="XXXX001"
+                        autoComplete="username"
                       />
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <label htmlFor="request-employee-id" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label>
-                    <div className="flex items-center w-full px-4 py-3 rounded-2xl bg-white border-2 border-transparent focus-within:border-blue-500 outline-none font-bold text-slate-800 transition-all">
-                      <span className="text-slate-400 font-black mr-2">BS-</span>
+
+                  <div className="space-y-3">
+                    <label htmlFor="login-password" className="text-[11px] font-black text-blue-100 uppercase tracking-widest ml-6">Personal Security Key</label>
+                    <div className="relative group">
                       <input
-                        id="request-employee-id"
-                        name="requestEmployeeId"
+                        id="login-password"
+                        name="password"
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        className="w-full px-8 py-5 pr-24 rounded-[2.5rem] bg-white border-4 border-transparent focus:border-blue-300 outline-none font-black text-slate-900 placeholder:text-slate-300 transition-all shadow-xl text-sm"
+                        placeholder="••••••••"
+                        autoComplete="current-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(prev => !prev)}
+                        className="absolute right-8 top-1/2 -translate-y-1/2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-blue-600 transition-all"
+                      >
+                        {showPassword ? 'Hide Key' : 'Show Key'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between px-6">
+                    <label className="flex items-center gap-3 text-[11px] font-black text-blue-100 uppercase tracking-widest cursor-pointer group">
+                      <div className={`w-6 h-6 rounded-lg border-2 transition-all flex items-center justify-center ${rememberMe ? 'bg-white border-white' : 'border-blue-400/50 hover:border-white'}`}>
+                        {rememberMe && <svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4.5" d="M5 13l4 4L19 7" /></svg>}
+                      </div>
+                      <input id="login-remember" name="rememberMe" type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="hidden" />
+                      Keep me authorized
+                    </label>
+                  </div>
+
+                  {error && (
+                    <div className="animate-fade-up bg-white p-5 rounded-3xl text-center shadow-xl border-l-8 border-rose-500">
+                      <p className="text-[11px] font-black text-rose-600 uppercase tracking-widest mb-1 italic">Security Error</p>
+                      <p className="text-[12px] font-bold text-slate-800">{error}</p>
+                    </div>
+                  )}
+
+                  <button type="submit" className="w-full bg-white text-blue-600 py-6 rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.2)] hover:scale-[1.03] active:scale-[0.97] transition-all hover:bg-slate-50">
+                    Authorize & Enter
+                  </button>
+
+                  <div className="grid grid-cols-2 gap-5 mt-6 border-t border-blue-400/30 pt-8">
+                    <button
+                      type="button"
+                      onClick={() => setLoginView('leave')}
+                      className="px-6 py-4 rounded-2xl bg-blue-500/20 border border-blue-400/30 hover:bg-white hover:text-blue-600 transition-all text-center group"
+                    >
+                      <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest group-hover:text-blue-400">Apply for</p>
+                      <p className="text-[12px] font-black text-white group-hover:text-blue-600 uppercase tracking-tighter">Leave</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLoginView('wfh')}
+                      className="px-6 py-4 rounded-2xl bg-blue-500/20 border border-blue-400/30 hover:bg-white hover:text-blue-600 transition-all text-center group"
+                    >
+                      <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest group-hover:text-blue-400">Apply for</p>
+                      <p className="text-[12px] font-black text-white group-hover:text-blue-600 uppercase tracking-tighter">WFH</p>
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <form className="space-y-6 animate-fade-up" onSubmit={e => { e.preventDefault(); loginView === 'leave' ? submitLeaveRequestFromLogin() : submitRemoteAccessRequest() }}>
+                  <div className="space-y-3">
+                    <label className="text-[11px] font-black text-blue-100 uppercase tracking-widest ml-6">Employee ID</label>
+                    <div className="group flex items-center w-full px-8 py-5 rounded-[2.5rem] bg-white border-4 border-transparent focus-within:border-blue-300 transition-all shadow-xl">
+                      <span className="text-blue-600 font-black mr-2 text-sm italic">BS-</span>
+                      <input
+                        required
                         type="text"
                         value={requestEmployeeId}
-                        onChange={e => {
-                          setRequestEmployeeId(e.target.value);
-                          setRequestError(null);
-                          setRequestFeedback(null);
-                        }}
-                        className="flex-1 bg-transparent outline-none font-bold text-slate-800"
+                        onChange={e => setRequestEmployeeId(e.target.value)}
+                        className="flex-1 bg-transparent outline-none font-black text-slate-900 placeholder:text-slate-300 text-sm"
                         placeholder="XXXX001"
                       />
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <label htmlFor="request-name" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Name</label>
-                    <input
-                      id="request-name"
-                      name="requestName"
-                      type="text"
-                      value={requestName}
-                      onChange={e => {
-                        setRequestName(e.target.value);
-                        setRequestError(null);
-                        setRequestFeedback(null);
-                      }}
-                      className="w-full px-4 py-3 rounded-2xl bg-white border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 transition-all"
-                      placeholder="Employee name"
-                    />
+
+                  <div className="grid grid-cols-2 gap-5">
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-black text-blue-100 uppercase tracking-widest ml-4">Start Date</label>
+                      <input
+                        type="date"
+                        value={requestStartDate}
+                        onChange={e => setRequestStartDate(e.target.value)}
+                        className="w-full bg-white border-4 border-transparent focus:border-blue-300 p-5 rounded-[1.5rem] text-sm font-black outline-none text-slate-900 shadow-xl"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-black text-blue-100 uppercase tracking-widest ml-4">End Date</label>
+                      <input
+                        type="date"
+                        value={requestEndDate}
+                        onChange={e => setRequestEndDate(e.target.value)}
+                        className="w-full bg-white border-4 border-transparent focus:border-blue-300 p-5 rounded-[1.5rem] text-sm font-black outline-none text-slate-900 shadow-xl"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <label htmlFor="request-reason" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Reason</label>
+
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-black text-blue-100 uppercase tracking-widest ml-4">Reason for {loginView === 'leave' ? 'Leave' : 'WFH'}</label>
                     <textarea
-                      id="request-reason"
-                      name="requestReason"
+                      required
                       value={requestReason}
-                      onChange={e => {
-                        setRequestReason(e.target.value);
-                        setRequestError(null);
-                        setRequestFeedback(null);
-                      }}
-                      className="w-full bg-white border-2 border-transparent focus:border-blue-500 p-3 rounded-2xl text-xs font-bold outline-none h-20 resize-none"
+                      onChange={e => setRequestReason(e.target.value)}
+                      className="w-full bg-white border-4 border-transparent focus:border-blue-300 p-6 rounded-[2rem] text-sm font-bold outline-none h-32 resize-none text-slate-900 shadow-xl"
+                      placeholder="Enter specific details..."
                     />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+                  {requestError && (
+                    <div className="bg-rose-500/90 p-5 rounded-2xl text-center shadow-xl">
+                      <p className="text-xs font-black text-white uppercase tracking-widest italic">{requestError}</p>
+                    </div>
+                  )}
+
+                  {requestFeedback && (
+                    <div className="bg-emerald-500/90 p-5 rounded-2xl text-center shadow-xl">
+                      <p className="text-xs font-black text-white uppercase tracking-widest italic">{requestFeedback}</p>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-4 pt-4">
                     <button
-                      type="button"
-                      onClick={submitRemoteAccessRequest}
+                      type="submit"
                       disabled={requestSubmitting}
-                      className="w-full bg-slate-900 text-white py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all disabled:opacity-60"
+                      className="w-full bg-white text-blue-600 py-6 rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] shadow-xl hover:scale-[1.03] transition-all disabled:opacity-50"
                     >
-                      Request WFH Access
+                      {requestSubmitting ? 'Processing...' : `Confirm ${loginView === 'leave' ? 'Leave' : 'WFH'}`}
                     </button>
                     <button
                       type="button"
-                      onClick={submitLeaveRequestFromLogin}
-                      disabled={requestSubmitting}
-                      className="w-full bg-blue-600 text-white py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-blue-500 transition-all disabled:opacity-60"
+                      onClick={() => { setLoginView('login'); setRequestFeedback(null); setRequestError(null); }}
+                      className="text-[11px] font-black text-blue-100 uppercase tracking-[0.3em] hover:text-white transition-all py-2 text-center"
                     >
-                      Request Leave
+                      Back to Login
                     </button>
                   </div>
-                  {requestError && (
-                    <p className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-100 px-3 py-2 rounded-xl text-center">
-                      {requestError}
-                    </p>
-                  )}
-                  {requestFeedback && (
-                    <p className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl text-center">
-                      {requestFeedback}
-                    </p>
-                  )}
-                </div>
+                </form>
+              )}
+
+              {/* Support Info */}
+              <div className="pt-8 border-t border-blue-400/30">
+                <p className="text-center text-[10px] font-black text-blue-200 uppercase tracking-[0.4em] opacity-60">
+                  BytechSol Enterprise Support System
+                </p>
               </div>
+            </div>
+
+            {/* Premium Branding Footer */}
+            <div className="text-center space-y-2">
+              <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em]">
+                Secure Digital Workforce Environment
+              </p>
+              <p className="text-[10px] font-bold text-blue-600">
+                © 2026 BYTECHSOL SYSTEMS • VERSION 2.0 PREMIUM
+              </p>
+            </div>
           </div>
         </div>
       </div>
     );
   }
+
+
+
+  const handleAddTask = (task: Task) => {
+    setTasks(prev => {
+      const updated = [...prev, task];
+      void saveTasks(updated);
+      return updated;
+    });
+    // Notification to assignee
+    addOrUpdateNotification({
+      id: `task-assigned:${task.id}`,
+      userId: task.assigneeId,
+      title: 'New Task Assigned',
+      message: `You have been assigned: ${task.title}`,
+      createdAt: new Date().toISOString(),
+      read: false,
+      playSound: true
+    }, true);
+  };
+
+  const handleUpdateTask = (task: Task) => {
+    setTasks(prev => {
+      const updated = prev.map(t => t.id === task.id ? task : t);
+      void saveTasks(updated);
+      return updated;
+    });
+    // If status changed to Done, notify assigner
+    if (task.status === 'Done') {
+      const original = tasks.find(t => t.id === task.id);
+      if (original && original.status !== 'Done') {
+        addOrUpdateNotification({
+          id: `task-done:${task.id}`,
+          userId: task.assignerId,
+          title: 'Task Completed',
+          message: `${user?.name} completed: ${task.title}`,
+          createdAt: new Date().toISOString(),
+          read: false,
+          playSound: true
+        }, true);
+      }
+    }
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    setTasks(prev => {
+      const updated = prev.filter(t => t.id !== taskId);
+      void saveTasks(updated);
+      return updated;
+    });
+  };
 
   const handleLogout = () => {
     localStorage.removeItem(SAVED_SESSION_KEY);
@@ -1644,7 +1803,13 @@ const App: React.FC = () => {
           onUpdateESS={handleUpdateESS}
           onUpdateChecklist={handleUpdateChecklist}
           onUpdateUser={handleUpdateUser}
+
           onCancelLeave={handleCancelLeave}
+          tasks={tasks}
+          onAddTask={handleAddTask}
+          onUpdateTask={handleUpdateTask}
+          onDeleteTask={handleDeleteTask}
+          users={users}
         />
       ) : (
         <AdminDashboard
@@ -1669,6 +1834,10 @@ const App: React.FC = () => {
           onSubmitLeave={handleSubmitLeave}
           onWfhAction={handleWfhAction}
           onUpdateESS={handleUpdateESS}
+          tasks={tasks}
+          onAddTask={handleAddTask}
+          onUpdateTask={handleUpdateTask}
+          onDeleteTask={handleDeleteTask}
         />
       )}
     </Layout>

@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AttendanceRecord, LeaveRequest, Role, User, ESSProfile, UserChecklist, WorkFromHomeRequest, CheckInStatus } from '../types';
+import { AttendanceRecord, LeaveRequest, Role, User, ESSProfile, UserChecklist, WorkFromHomeRequest, CheckInStatus, Task } from '../types';
+import TaskBoard from './TaskBoard';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
 import { addDaysToDateString, getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, buildZonedISOString, formatTimeInZone, getWeekdayLabel } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
+import Icon3D from './Icon3D';
 import logoUrl from '../asset/public/logo.svg';
 
 const parseEmployeeSeed = (employeeId?: string) => {
@@ -373,6 +375,7 @@ const buildDocumentHtml = (
         </p>
         <p style="font-size:13px;line-height:1.7;color:#334155;margin-top:18px;">Sincerely,</p>
         ${signatureBlock}
+        <div style="text-align:center;font-size:11px;color:#94a3b8;margin-top:14px;border-top:1px dashed #e2e8f0;padding-top:10px;">This is a digitally generated document and requires no signature.</div>
         ${footer}
       ${containerEnd}
       ${docRootEnd}
@@ -393,14 +396,37 @@ const buildDocumentHtml = (
         <p style="font-size:13px;line-height:1.7;color:#334155;">
           We are pleased to appoint you as <strong>${role}</strong> at ${company}. Your appointment is effective from <strong>${startDate}</strong> at our ${location} office. You will report to your assigned manager and perform duties as per your job description and departmental requirements.
         </p>
+        <div style="margin:20px 0;padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;">
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:#64748b;margin-bottom:12px;border-bottom:1px solid #e2e8f0;padding-bottom:8px;">Compensation Details</div>
+          <table style="width:100%;font-size:13px;color:#334155;">
+            <tr>
+              <td style="padding:4px 0;color:#64748b;width:40%;">Monthly Basic Salary:</td>
+              <td style="padding:4px 0;font-weight:700;">${data.salary ? formatCurrency(Number(data.salary)) : 'As per policy'}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 0;color:#64748b;">Commission (on sales):</td>
+              <td style="padding:4px 0;font-weight:700;">${data.commission || 'As per policy'}</td>
+            </tr>
+          </table>
+        </div>
         <p style="font-size:13px;line-height:1.7;color:#334155;">
-          You are expected to comply with all company policies, confidentiality standards, and professional conduct guidelines. Your compensation, benefits, and working schedule will be governed by company policies and communicated during onboarding.
+          <strong>Roles & Responsibilities:</strong> You shall perform the duties and responsibilities assigned to you by the Management from time to time with utmost sincerity and dedication. You will be expected to maintain the highest standards of professional conduct and contribute to the growth and success of the organization.
         </p>
         <p style="font-size:13px;line-height:1.7;color:#334155;">
-          We look forward to your valuable contribution and wish you success in your role. Please retain this letter for your records.
+          <strong>Probation Period:</strong> You will be on probation for a period of three months. Upon successful completion of the probation period, your employment may be confirmed in writing by the Management.
+        </p>
+        <p style="font-size:13px;line-height:1.7;color:#334155;">
+          <strong>Confidentiality & Non-Disclosure:</strong> You shall maintain strict confidentiality regarding all company information, clients, trade secrets, and internal processes. Any breach of confidentiality will result in immediate termination and potential legal action.
+        </p>
+        <p style="font-size:13px;line-height:1.7;color:#334155;">
+          <strong>Professional Standards:</strong> Your conduct, both within and outside the office, should reflect the values and professional standards of ${company}. You are expected to comply with all company policies and guidelines as communicated during your onboarding and throughout your tenure.
+        </p>
+        <p style="font-size:13px;line-height:1.7;color:#334155;">
+          We look forward to your valuable contribution and wish you a successful career with us. Please retain this letter for your records.
         </p>
         <p style="font-size:13px;line-height:1.7;color:#334155;margin-top:18px;">Sincerely,</p>
         ${signatureBlock}
+        <div style="text-align:center;font-size:11px;color:#94a3b8;margin-top:14px;border-top:1px dashed #e2e8f0;padding-top:10px;">This is a digitally generated document and requires no signature.</div>
         ${footer}
       ${containerEnd}
       ${docRootEnd}
@@ -432,6 +458,7 @@ const buildDocumentHtml = (
       </p>
       <p style="font-size:13px;line-height:1.7;color:#334155;margin-top:18px;">Sincerely,</p>
       ${signatureBlock}
+      <div style="text-align:center;font-size:11px;color:#94a3b8;margin-top:14px;border-top:1px dashed #e2e8f0;padding-top:10px;">This is a digitally generated document and requires no signature.</div>
       ${footer}
     ${containerEnd}
     ${docRootEnd}
@@ -461,6 +488,10 @@ interface AdminDashboardProps {
   onSubmitLeave: (start: string, end: string, reason: string) => void;
   onWfhAction: (id: string, action: 'Approved' | 'Rejected') => void;
   onUpdateESS: (profile: ESSProfile) => void;
+  tasks: Task[];
+  onAddTask: (task: Task) => void;
+  onUpdateTask: (task: Task) => void;
+  onDeleteTask: (taskId: string) => void;
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -484,9 +515,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteUser,
   onSubmitLeave,
   onWfhAction,
-  onUpdateESS
+  onUpdateESS,
+  tasks,
+  onAddTask,
+  onUpdateTask,
+  onDeleteTask
 }) => {
-  const [tab, setTab] = useState<'attendance' | 'leaves' | 'overtime' | 'personnel' | 'documents'>('attendance');
+  const [tab, setTab] = useState<'attendance' | 'leaves' | 'overtime' | 'personnel' | 'documents' | 'tasks'>('attendance');
   const [selectedEmp, setSelectedEmp] = useState('all');
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -555,7 +590,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       company: 'BYTECHSOL LLC',
       basicSalary: '',
       allowances: '',
-      deductions: ''
+      deductions: '',
+      salary: '',
+      commission: ''
     };
   });
   const documentRoleOptions = [
@@ -635,10 +672,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
     return false;
   };
-  const visibleRecords = isSuperadmin || !rosterAvailable ? records : records.filter(isRecordVisible);
-  const visibleLeaves = isSuperadmin || !rosterAvailable ? leaves : leaves.filter(isLeaveVisible);
+  const visibleRecords = isSuperadmin || isCeo || !rosterAvailable ? records : records.filter(isRecordVisible);
+  const visibleLeaves = isSuperadmin || isCeo || !rosterAvailable ? leaves : leaves.filter(isLeaveVisible);
   const visibleLeaveRequests = visibleLeaves.filter(l => !l.id.startsWith('auto-absence:'));
-  const visibleWfh = isSuperadmin || !rosterAvailable ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));
+  const visibleWfh = isSuperadmin || isCeo || !rosterAvailable ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));
   const overtimeUsers = rosterAvailable
     ? sortedVisibleUsers
     : Array.from(
@@ -1021,6 +1058,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const [cutoffHour, cutoffMinute] = APP_CONFIG.FRIDAY_LATE_EXEMPT_CUTOFF.split(':').map(Number);
     const cutoffBase = cutoffHour * 60 + cutoffMinute;
     const cutoffAdjusted = isOvernight && cutoffBase < endTotal ? cutoffBase + 24 * 60 : cutoffBase;
+    const generalExemptIds = (APP_CONFIG as any).LATE_EXEMPT_EMPLOYEE_IDS || [];
+    const isGeneralExempt = Boolean(workerId) && generalExemptIds.includes(workerId);
+    const [genCutoffHour, genCutoffMinute] = ((APP_CONFIG as any).LATE_EXEMPT_CUTOFF || "20:00").split(':').map(Number);
+    const genCutoffBase = genCutoffHour * 60 + genCutoffMinute;
+    const genCutoffAdjusted = isOvernight && genCutoffBase < endTotal ? genCutoffBase + 24 * 60 : genCutoffBase;
+
+    if (isGeneralExempt && currentMinutes <= genCutoffAdjusted) {
+      return 'On-Time';
+    }
+
     if (isFriday && isExemptUser && currentMinutes <= cutoffAdjusted) {
       return 'On-Time';
     }
@@ -1280,14 +1327,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 animate-fade-up">
       {!isExecutive && (
         <div className="glass-card rounded-[2rem] p-6 border-2 border-white flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center space-x-4">
               <div className={`w-3 h-3 rounded-full ${canTrack ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
               <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Personal Attendance (HR)</p>
+                <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Personal Attendance (HR)</p>
                 <p className="font-black text-slate-900">
                   {myRecord
                     ? `Active since ${new Date(myRecord.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
@@ -1298,26 +1345,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <div className="px-4 py-3 rounded-2xl bg-blue-50 border border-blue-100">
-                <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Weekly Overtime</p>
-                <p className="text-sm font-black text-blue-600">{weeklyOT > 0 ? formatDuration(weeklyOT) : '0h 0m'}</p>
+              <div className="flex items-center gap-3 px-4 py-2 rounded-2xl bg-blue-50 border border-blue-100">
+                <Icon3D icon="Activity" size="xs" variant="blue" />
+                <div>
+                  <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Weekly OT</p>
+                  <p className="text-sm font-black text-blue-600">{weeklyOT > 0 ? formatDuration(weeklyOT) : '0h 0m'}</p>
+                </div>
               </div>
-              <div className="px-4 py-3 rounded-2xl bg-amber-50 border border-amber-100">
-                <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Late Allowance</p>
-                <p className="text-sm font-black text-amber-600">{lateRemaining} left</p>
-                <p className="text-[9px] font-bold text-amber-400 uppercase tracking-widest">{lateCountThisMonth}/{lateAllowance} used</p>
+              <div className="flex items-center gap-3 px-4 py-2 rounded-2xl bg-amber-50 border border-amber-100">
+                <Icon3D icon="History" size="xs" variant="amber" />
+                <div>
+                  <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Late Rem.</p>
+                  <p className="text-sm font-black text-amber-600">{lateRemaining} left</p>
+                </div>
               </div>
               {user.role === Role.HR && (
-                <div className="px-4 py-3 rounded-2xl bg-emerald-50 border border-emerald-100">
-                  <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Monthly Salary</p>
-                  <p className="text-sm font-black text-emerald-700">
-                    {mySnapshot ? formatCurrency(mySnapshot.salaryAfterTax) : 'Set Salary'}
-                  </p>
-                  {mySnapshot && (
-                    <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest">
-                      After Tax
+                <div className="flex items-center gap-3 px-4 py-2 rounded-2xl bg-emerald-50 border border-emerald-100">
+                  <Icon3D icon="Wallet" size="xs" variant="emerald" />
+                  <div>
+                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Net Salary</p>
+                    <p className="text-sm font-black text-emerald-700">
+                      {mySnapshot ? formatCurrency(mySnapshot.salaryAfterTax) : 'Set Salary'}
                     </p>
-                  )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1332,221 +1382,269 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-        <div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase">{user.role} Console</h1>
-          <p className="text-slate-500 font-bold text-xs uppercase tracking-widest flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            Enterprise Resource Planning
-          </p>
+      {/* Premium Dashboard Header */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+        <div className="flex items-center gap-6">
+          <Icon3D icon="ShieldCheck" size="lg" variant="blue" />
+          <div className="space-y-1">
+            <h1 className="text-4xl font-black text-slate-900 tracking-tighter">
+              {user.role} <span className="text-blue-600">Console</span>
+            </h1>
+            <p className="text-slate-500 font-medium flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Enterprise Resource Planning & System Administration
+            </p>
+          </div>
         </div>
-        <div className="flex p-1 bg-slate-100 rounded-2xl overflow-x-auto max-w-full">
-          {(['attendance', 'leaves', 'overtime', 'personnel', 'documents'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${tab === t ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>{t}</button>
+
+        {/* Tab Navigation - Premium Pill Style */}
+        <div className="flex items-center p-2 bg-slate-50 rounded-[2.5rem] border-2 border-slate-100 shadow-xl shadow-blue-500/5 w-fit overflow-x-auto no-scrollbar">
+          {[
+            { id: 'attendance', label: 'Attendance', icon: 'Calendar' },
+            { id: 'leaves', label: 'Leaves', icon: 'Plane' },
+            { id: 'overtime', label: 'Overtime', icon: 'Clock' },
+            { id: 'personnel', label: 'Personnel', icon: 'Users' },
+            { id: 'documents', label: 'Docs', icon: 'FileStack' },
+            { id: 'tasks', label: 'Tasks', icon: 'ListChecks' }
+          ].map(item => (
+            <button
+              key={item.id}
+              onClick={() => setTab(item.id as any)}
+              className={`flex items-center gap-2 pr-6 py-2 rounded-[1.8rem] text-[11px] font-black uppercase tracking-widest transition-all duration-500 whitespace-nowrap ${tab === item.id
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/40 transform scale-105 pl-2'
+                : 'text-slate-500 hover:text-blue-600 hover:bg-white pl-2'
+                }`}
+            >
+              <Icon3D
+                icon={item.icon as any}
+                size="sm"
+                variant={tab === item.id ? 'blue' : 'slate'}
+                className={tab === item.id ? 'bg-white/20 border-white/20' : ''}
+              />
+              {item.label}
+            </button>
           ))}
         </div>
       </div>
 
       {tab === 'attendance' && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-            <select id="attendance-employee-filter" name="attendanceEmployee" aria-label="Select employee" value={selectedEmp} onChange={e => setSelectedEmp(e.target.value)} className="bg-white border-2 border-slate-100 rounded-2xl px-6 py-3 text-xs font-black uppercase outline-none focus:border-blue-500 shadow-sm w-full sm:w-auto">
-              <option value="all">Global Roster</option>
-              {sortedVisibleUsers.map(emp => <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>)}
-            </select>
-            <div className="flex items-end gap-2 w-full sm:w-auto">
-              <div className="space-y-1">
-                <label htmlFor="admin-attendance-date" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Filter Date</label>
-                <div className="relative">
-                  <input
-                    id="admin-attendance-date"
-                    type="date"
-                    value={attendanceDateFilter}
-                    onChange={e => setAttendanceDateFilter(e.target.value)}
-                    className="bg-white border-2 border-slate-100 rounded-2xl px-4 py-3 pr-10 text-[10px] font-black uppercase outline-none focus:border-blue-500 shadow-sm w-full sm:w-auto text-slate-700 cursor-pointer appearance-none"
-                    ref={attendanceDateRef}
-                    onClick={() => {
-                      attendanceDateRef.current?.showPicker?.();
-                      attendanceDateRef.current?.focus();
-                    }}
-                    onFocus={() => {
-                      attendanceDateRef.current?.showPicker?.();
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      attendanceDateRef.current?.showPicker?.();
-                      attendanceDateRef.current?.focus();
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all z-10"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                  </button>
-                </div>
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+            <div className="relative group w-full md:w-auto">
+              <select
+                id="attendance-employee-filter"
+                name="attendanceEmployee"
+                aria-label="Select employee"
+                value={selectedEmp}
+                onChange={e => setSelectedEmp(e.target.value)}
+                className="w-full md:w-[280px] bg-white border border-slate-200 rounded-2xl px-6 py-4 text-xs font-black uppercase tracking-widest outline-none focus:border-blue-500 shadow-sm transition-all appearance-none cursor-pointer pr-12"
+              >
+                <option value="all">Global Roster</option>
+                {sortedVisibleUsers.map(emp => <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>)}
+              </select>
+              <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7" />
+                </svg>
               </div>
-            {attendanceDateFilter && (
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
+              <div className="relative group">
+                <input
+                  id="admin-attendance-date"
+                  type="date"
+                  value={attendanceDateFilter}
+                  onChange={e => setAttendanceDateFilter(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-2xl px-6 py-4 text-[11px] font-black uppercase tracking-widest outline-none focus:border-blue-500 shadow-sm transition-all appearance-none cursor-pointer pr-12"
+                  ref={attendanceDateRef}
+                />
+                <button
+                  type="button"
+                  onClick={() => attendanceDateRef.current?.showPicker?.()}
+                  className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-blue-500 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </button>
+              </div>
+
+              {attendanceDateFilter && (
+                <button
+                  type="button"
+                  onClick={() => setAttendanceDateFilter('')}
+                  className="px-6 py-4 rounded-2xl bg-slate-100 text-[11px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-200 transition-all shadow-sm"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {isSuperadmin && (
               <button
                 type="button"
-                onClick={() => setAttendanceDateFilter('')}
-                className="px-4 py-3 rounded-2xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all"
+                onClick={() => {
+                  setIsAddingRecord(true);
+                  setNewRecordUserId('');
+                  const today = getLocalDateString(new Date());
+                  setNewRecordDate(today);
+                  setNewRecordOutDate(today);
+                  setNewRecordCheckIn('');
+                  setNewRecordCheckOut('');
+                }}
+                className="bg-blue-600 text-white px-6 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 transition-all w-full sm:w-auto"
               >
-                Clear
+                Add Attendance
               </button>
             )}
-          </div>
-          {isSuperadmin && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsAddingRecord(true);
-                setNewRecordUserId('');
-                const today = getLocalDateString(new Date());
-                setNewRecordDate(today);
-                setNewRecordOutDate(today);
-                setNewRecordCheckIn('');
-                setNewRecordCheckOut('');
-              }}
-              className="bg-blue-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 transition-all w-full sm:w-auto"
-            >
-              Add Attendance
-            </button>
-          )}
-          {selectedEmp !== 'all' && (
-            <button onClick={() => downloadIndividualReport(selectedEmp)} className="bg-emerald-50 text-emerald-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 hover:bg-emerald-100 transition-all flex items-center gap-2 w-full sm:w-auto justify-center">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-              Download Monthly Sheet
-            </button>
+            {selectedEmp !== 'all' && (
+              <button onClick={() => downloadIndividualReport(selectedEmp)} className="bg-emerald-50 text-emerald-600 px-6 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest border border-emerald-100 hover:bg-emerald-100 transition-all flex items-center gap-2 w-full sm:w-auto justify-center">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                Download Monthly Sheet
+              </button>
             )}
           </div>
           <div className="glass-card rounded-[2.5rem]">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-left">
-              <thead>
-                <tr className="bg-slate-50/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Employee</th>
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Date</th>
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Check In</th>
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Check Out</th>
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Duration</th>
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {pagedAttendance.map(r => {
-                  const recordUser = users.find(u => u.id === r.userId);
-                  const roleLabel = recordUser?.position || recordUser?.role || 'Employee';
-                  return (
-                  <tr key={r.id} className="hover:bg-blue-50/20 transition-all">
-                    <td className="px-4 md:px-6 2xl:px-8 py-6">
-                      <div className="flex flex-col">
-                        <span className="font-black text-slate-900">{r.userName}</span>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mt-1">{roleLabel}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 md:px-6 2xl:px-8 py-6 text-xs font-bold text-slate-500">{resolveRecordDate(r)}</td>
-                    <td className="px-4 md:px-6 2xl:px-8 py-6">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 md:px-6 2xl:px-8 py-6">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-black">{r.checkOut ? formatTimeInZone(r.checkOut) : 'Active'}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'Overtime' ? 'border-emerald-100 text-emerald-600 bg-emerald-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-400 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-blue-600">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
-                    <td className="px-4 md:px-6 2xl:px-8 py-6">
-                      {isSuperadmin && <button onClick={() => startEditingRecord(r)} className="text-[10px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-800 underline">Manual Edit</button>}
-                    </td>
+                <thead>
+                  <tr className="bg-slate-50/50 text-[11px] font-black uppercase tracking-widest text-slate-500">
+                    <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Employee</th>
+                    <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Date</th>
+                    <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Check In</th>
+                    <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Check Out</th>
+                    <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Duration</th>
+                    <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Actions</th>
                   </tr>
-                  );
-                })}
-              </tbody>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {pagedAttendance.map(r => {
+                    const recordUser = users.find(u => u.id === r.userId);
+                    const roleLabel = recordUser?.position || recordUser?.role || 'Employee';
+                    return (
+                      <tr key={r.id} className="hover:bg-slate-50/80 transition-all duration-300 group">
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-black text-xs border-2 border-white shadow-sm ring-1 ring-blue-50">
+                              {toInitials(r.userName)}
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="font-black text-slate-900 text-sm">{r.userName}</span>
+                              <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 mt-0.5">{roleLabel}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6 text-xs font-black text-slate-500 text-center">{resolveRecordDate(r)}</td>
+                        <td className="px-8 py-6">
+                          <div className="flex flex-col items-center">
+                            <span className="text-sm font-black text-slate-900">{formatTimeInZone(r.checkIn)}</span>
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border w-fit mt-1.5 shadow-sm transition-transform group-hover:scale-105 ${getDisplayStatus(r) === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="flex flex-col items-center">
+                            <span className="text-sm font-black text-slate-900">{r.checkOut ? formatTimeInZone(r.checkOut) : <span className="text-emerald-500 animate-pulse">ACTIVE</span>}</span>
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border w-fit mt-1.5 shadow-sm transition-transform group-hover:scale-105 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'Overtime' ? 'border-emerald-100 text-emerald-600 bg-emerald-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-500 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6 font-black text-blue-600 text-center text-sm">{r.totalHours ? formatDuration(r.totalHours) : '--'}</td>
+                        <td className="px-8 py-6 text-right">
+                          {isSuperadmin && (
+                            <button
+                              onClick={() => startEditingRecord(r)}
+                              className="px-4 py-2 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-all text-[11px] font-black uppercase tracking-widest shadow-sm ring-1 ring-blue-100"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
               </table>
             </div>
           </div>
-          <div className="glass-card rounded-[2.5rem] p-6 sm:p-8">
-            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
-              <div>
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Monthly View</h3>
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{monthSummaryLabel}{selectedEmployee ? ` • ${selectedEmployee.name}` : ''}</p>
+          <div className="glass-card rounded-[2.5rem] p-0 overflow-hidden border border-white/40 shadow-2xl shadow-blue-500/5">
+            <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row md:items-end md:justify-between gap-6 bg-slate-50/50">
+              <div className="space-y-1">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Employee Monthly Insights</h3>
+                <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                  {monthSummaryLabel} {selectedEmployee ? `• ${selectedEmployee.name}` : ''}
+                </p>
               </div>
-              <div className="flex items-end gap-2">
-                <div className="space-y-1">
-                  <label htmlFor="admin-attendance-month" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Month</label>
-                  <div className="relative">
-                    <input
-                      id="admin-attendance-month"
-                      type="month"
-                      value={attendanceMonthFilter}
-                      onChange={e => setAttendanceMonthFilter(e.target.value)}
-                      className="bg-white border-2 border-slate-100 rounded-2xl px-4 py-3 pr-10 text-[10px] font-black uppercase outline-none focus:border-blue-500 shadow-sm w-full sm:w-auto text-slate-700 cursor-pointer appearance-none"
-                      ref={attendanceMonthRef}
-                      onClick={() => {
-                        attendanceMonthRef.current?.showPicker?.();
-                        attendanceMonthRef.current?.focus();
-                      }}
-                      onFocus={() => {
-                        attendanceMonthRef.current?.showPicker?.();
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        attendanceMonthRef.current?.showPicker?.();
-                        attendanceMonthRef.current?.focus();
-                      }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-all z-10"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                    </button>
-                  </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="px-4 py-2.5 rounded-2xl bg-white border border-slate-100 shadow-sm flex flex-col items-center min-w-[100px]">
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Hours</span>
+                  <span className="text-xs font-black text-slate-900">{formatDuration(monthTotalHours)}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="px-3 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    Total: {formatDuration(monthTotalHours)}
-                  </div>
-                  <div className="px-3 py-2 rounded-xl bg-emerald-50 text-[10px] font-black uppercase tracking-widest text-emerald-600">
-                    OT: {formatDuration(monthOvertimeHours)}
-                  </div>
+                <div className="px-4 py-2.5 rounded-2xl bg-emerald-50 border border-emerald-100 shadow-sm flex flex-col items-center min-w-[100px]">
+                  <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Overtime</span>
+                  <span className="text-xs font-black text-emerald-600">{formatDuration(monthOvertimeHours)}</span>
+                </div>
+                <div className="relative">
+                  <input
+                    id="admin-attendance-month-input"
+                    type="month"
+                    value={attendanceMonthFilter}
+                    onChange={e => setAttendanceMonthFilter(e.target.value)}
+                    className="bg-white border border-slate-200 rounded-2xl px-5 py-3 text-[11px] font-black uppercase tracking-widest outline-none focus:border-blue-500 shadow-sm transition-all appearance-none cursor-pointer pr-10"
+                    ref={attendanceMonthRef}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => attendanceMonthRef.current?.showPicker()}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>
             {selectedEmp === 'all' ? (
-              <div className="text-center py-10 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase text-[9px] tracking-widest">Select an employee to view month</div>
+              <div className="text-center py-16 px-8 space-y-4">
+                <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+                <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Select an employee from the roster to view detailed monthly metrics</p>
+              </div>
             ) : sortedMonthlyAttendance.length === 0 ? (
-              <div className="text-center py-10 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase text-[9px] tracking-widest">No records for this month</div>
+              <div className="text-center py-16 px-8">
+                <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">No activity recorded for this period</p>
+              </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-left">
+                <table className="w-full min-w-[800px] text-left">
                   <thead>
-                    <tr className="bg-slate-50/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                      <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Date</th>
-                      <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Check In</th>
-                      <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Check Out</th>
-                      <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Duration</th>
+                    <tr className="bg-slate-50/80 text-[11px] font-black uppercase tracking-widest text-slate-500">
+                      <th className="px-8 py-5">Shift Date</th>
+                      <th className="px-8 py-5 text-center">Clock In</th>
+                      <th className="px-8 py-5 text-center">Clock Out</th>
+                      <th className="px-8 py-5 text-center">Duration</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
+                  <tbody className="divide-y divide-slate-100 bg-white">
                     {sortedMonthlyAttendance.map(r => (
-                      <tr key={r.id} className="hover:bg-blue-50/20 transition-all">
-                        <td className="px-4 md:px-6 2xl:px-8 py-6 text-xs font-bold text-slate-500">{resolveRecordDate(r)}</td>
-                        <td className="px-4 md:px-6 2xl:px-8 py-6">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
+                      <tr key={r.id} className="hover:bg-slate-50/80 transition-all group">
+                        <td className="px-8 py-6 text-xs font-black text-slate-600">{resolveRecordDate(r)}</td>
+                        <td className="px-8 py-6">
+                          <div className="flex flex-col items-center">
+                            <span className="text-sm font-black text-slate-900">{formatTimeInZone(r.checkIn)}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border w-fit mt-1.5 ${getDisplayStatus(r) === 'Late' ? 'border-rose-100 text-rose-600 bg-rose-50' : getDisplayStatus(r) === 'Early' ? 'border-amber-100 text-amber-600 bg-amber-50' : 'border-emerald-100 text-emerald-600 bg-emerald-50'}`}>{getDisplayStatus(r)}</span>
                           </div>
                         </td>
-                        <td className="px-4 md:px-6 2xl:px-8 py-6">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-black">{r.checkOut ? formatTimeInZone(r.checkOut) : 'Active'}</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'Overtime' ? 'border-emerald-100 text-emerald-600 bg-emerald-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-400 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
+                        <td className="px-8 py-6">
+                          <div className="flex flex-col items-center">
+                            <span className="text-sm font-black text-slate-900">{r.checkOut ? formatTimeInZone(r.checkOut) : <span className="text-emerald-500 animate-pulse">ACTIVE</span>}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border w-fit mt-1.5 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'Overtime' ? 'border-emerald-100 text-emerald-600 bg-emerald-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-500 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
                           </div>
                         </td>
-                        <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-blue-600">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
+                        <td className="px-8 py-6 font-black text-blue-600 text-center text-sm">{r.totalHours ? formatDuration(r.totalHours) : '--'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1559,88 +1657,138 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {tab === 'leaves' && (
         <div className="space-y-8">
-          <div className="glass-card rounded-[2.5rem] p-8">
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Apply for Leave (My Request)</h3>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="space-y-1">
-                <label htmlFor="admin-leave-start" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Start Date</label>
-                <input id="admin-leave-start" name="leaveStartDate" type="date" value={leaveStartDate} onChange={e => setLeaveStartDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
+          {!isExecutive && (
+            <div className="glass-card rounded-[2.5rem] p-8">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Apply for Leave (My Request)</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="space-y-1">
+                  <label htmlFor="admin-leave-start" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Start Date</label>
+                  <input id="admin-leave-start" name="leaveStartDate" type="date" value={leaveStartDate} onChange={e => setLeaveStartDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="admin-leave-end" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">End Date</label>
+                  <input id="admin-leave-end" name="leaveEndDate" type="date" value={leaveEndDate} onChange={e => setLeaveEndDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="admin-leave-reason" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Leave Application</label>
+                  <textarea id="admin-leave-reason" name="leaveReason" value={leaveApplication} onChange={e => setLeaveApplication(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 h-24 resize-none" />
+                </div>
               </div>
-              <div className="space-y-1">
-                <label htmlFor="admin-leave-end" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">End Date</label>
-                <input id="admin-leave-end" name="leaveEndDate" type="date" value={leaveEndDate} onChange={e => setLeaveEndDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
-              </div>
-              <div className="space-y-1">
-                <label htmlFor="admin-leave-reason" className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Leave Application</label>
-                <textarea id="admin-leave-reason" name="leaveReason" value={leaveApplication} onChange={e => setLeaveApplication(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 h-24 resize-none" />
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!leaveStartDate || !leaveEndDate) return;
+                  onSubmitLeave(leaveStartDate, leaveEndDate, leaveApplication);
+                  const today = getLocalDateString(new Date());
+                  setLeaveStartDate(today);
+                  setLeaveEndDate(today);
+                  setLeaveApplication(buildLeaveTemplate(user));
+                }}
+                className="mt-6 w-full premium-gradient text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl"
+              >
+                Submit Leave Request
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (!leaveStartDate || !leaveEndDate) return;
-                onSubmitLeave(leaveStartDate, leaveEndDate, leaveApplication);
-                const today = getLocalDateString(new Date());
-                setLeaveStartDate(today);
-                setLeaveEndDate(today);
-                setLeaveApplication(buildLeaveTemplate(user));
-              }}
-              className="mt-6 w-full premium-gradient text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl"
-            >
-              Submit Leave Request
-            </button>
-          </div>
+          )}
 
           <div className="grid grid-cols-1 gap-6">
-            {visibleLeaveRequests.length === 0 ? <div className="glass-card rounded-[2rem] p-20 text-center font-black text-slate-300 uppercase tracking-widest">No Leave Records Found</div> : visibleLeaveRequests.map(l => (
-              <div key={l.id} className="glass-card rounded-[2rem] p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="font-black text-lg text-slate-900">{l.userName}</span>
-                    <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : l.status === 'Cancelled' ? 'bg-slate-100 text-slate-500' : 'bg-rose-50 text-rose-600'}`}>{l.status}</span>
-                    <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${l.isPaid === false ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}>{l.isPaid === false ? 'Unpaid' : 'Paid'}</span>
-                  </div>
-                  <p className="text-xs font-bold text-slate-500">{l.startDate} to {l.endDate}</p>
-                  <p className="text-sm font-medium text-slate-700 italic">"{l.reason}"</p>
+            {visibleLeaveRequests.length === 0 ? (
+              <div className="glass-card rounded-[2.5rem] p-20 text-center font-black text-slate-300 uppercase tracking-widest border-2 border-dashed border-slate-100 flex flex-col items-center">
+                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm mb-3">
+                  <svg className="w-6 h-6 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
                 </div>
-                {l.status === 'Pending' && (
-                  <div className="flex flex-wrap gap-2">
-                    {canApprove ? <><button onClick={() => onLeaveAction(l.id, 'Approved')} className="bg-emerald-500 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 transition-all">Approve</button><button onClick={() => onLeaveAction(l.id, 'Rejected')} className="bg-rose-500 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-600 transition-all">Reject</button></> : <span className="text-[10px] font-black text-slate-300 uppercase italic">Awaiting CEO Action</span>}
-                  </div>
-                )}
+                No active leave requests
               </div>
-            ))}
-          </div>
-
-          <div className="glass-card rounded-[2.5rem] p-8">
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Work From Home Requests</h3>
-            {visibleWfh.length === 0 ? (
-              <div className="text-center py-16 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase tracking-widest text-xs">No WFH Requests</div>
             ) : (
-              <div className="space-y-4">
-                {visibleWfh.map(req => (
-                  <div key={req.id} className="glass-card rounded-[2rem] p-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <span className="font-black text-lg text-slate-900">{req.userName}</span>
-                        <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600' : req.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{req.status}</span>
-                      </div>
-                      <p className="text-xs font-bold text-slate-500">Dates: {req.startDate} → {req.endDate}</p>
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-300">Requested on {new Date(req.submittedAt).toLocaleDateString()}</p>
-                      <p className="text-sm font-medium text-slate-700 italic">"{req.reason}"</p>
+              visibleLeaveRequests.map(l => (
+                <div key={l.id} className="glass-card rounded-[2.5rem] p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 border border-white/40 shadow-xl shadow-blue-500/5 hover:shadow-2xl hover:shadow-blue-500/10 transition-all duration-500 group animate-in fade-in slide-in-from-bottom-2">
+                  <div className="flex items-center gap-5">
+                    <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-500 font-black text-sm shadow-sm group-hover:scale-105 transition-transform">
+                      {toInitials(l.userName)}
                     </div>
-                    {req.status === 'Pending' && (
-                      <div className="flex flex-wrap gap-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-3">
+                        <span className="font-black text-lg text-slate-900 leading-none">{l.userName}</span>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>{l.status}</span>
+                      </div>
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{l.startDate} → {l.endDate}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 max-w-md">
+                    <p className="text-sm font-medium text-slate-600 leading-relaxed italic border-l-4 border-blue-500/30 pl-4 py-1 bg-slate-50/50 rounded-r-xl">"{l.reason}"</p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className={`px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest border ${l.isPaid === false ? 'bg-slate-50 text-slate-500 border-slate-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>{l.isPaid === false ? 'Unpaid' : 'Paid Leave'}</span>
+                    {l.status === 'Pending' && (
+                      <div className="flex gap-2">
                         {canApprove ? (
                           <>
-                            <button onClick={() => onWfhAction(req.id, 'Approved')} className="bg-emerald-500 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 transition-all">Approve</button>
-                            <button onClick={() => onWfhAction(req.id, 'Rejected')} className="bg-rose-500 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-600 transition-all">Reject</button>
+                            <button onClick={() => onLeaveAction(l.id, 'Approved')} className="bg-slate-900 text-white px-6 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all">Approve</button>
+                            <button onClick={() => onLeaveAction(l.id, 'Rejected')} className="bg-rose-50 text-rose-600 border border-rose-100 px-6 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all">Reject</button>
                           </>
                         ) : (
-                          <span className="text-[10px] font-black text-slate-300 uppercase italic">Awaiting CEO Action</span>
+                          <span className="text-[11px] font-black text-slate-400 uppercase italic">Awaiting CEO Action</span>
                         )}
                       </div>
                     )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="glass-card rounded-[2.5rem] p-0 overflow-hidden border border-white/40 shadow-2xl shadow-blue-500/5 mt-10">
+            <div className="p-8 border-b border-slate-100 bg-slate-50/50">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Work From Home Requests</h3>
+              <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mt-1">Global Queue</p>
+            </div>
+            {visibleWfh.length === 0 ? (
+              <div className="text-center py-20 px-8 bg-white border-dashed border-2 border-slate-50 m-8 rounded-[2rem] flex flex-col items-center">
+                <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
+                  <svg className="w-6 h-6 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m0 0l-7 7-7-7m2 2v10a1 1 0 011 1h3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  </svg>
+                </div>
+                <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">All caught up! No active WFH requests.</p>
+              </div>
+            ) : (
+              <div className="p-8 space-y-4">
+                {visibleWfh.map(req => (
+                  <div key={req.id} className="glass-card rounded-[2.5rem] p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 border border-slate-100 hover:border-blue-200 transition-all duration-500 group">
+                    <div className="flex items-center gap-5">
+                      <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 font-black text-sm shadow-sm group-hover:scale-105 transition-transform uppercase">
+                        {toInitials(req.userName)}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-3">
+                          <span className="font-black text-lg text-slate-900 leading-none">{req.userName}</span>
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' : req.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>{req.status}</span>
+                        </div>
+                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{req.startDate} → {req.endDate}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 max-w-md">
+                      <p className="text-sm font-medium text-slate-600 leading-relaxed italic border-l-4 border-emerald-500/30 pl-4 py-1 bg-slate-50/50 rounded-r-xl">"{req.reason}"</p>
+                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mt-2">Submitted on {new Date(req.submittedAt).toLocaleDateString()}</p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {req.status === 'Pending' && (
+                        canApprove ? (
+                          <>
+                            <button onClick={() => onWfhAction(req.id, 'Approved')} className="bg-slate-900 text-white px-6 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all">Approve</button>
+                            <button onClick={() => onWfhAction(req.id, 'Rejected')} className="bg-rose-50 text-rose-600 border border-rose-100 px-6 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all">Reject</button>
+                          </>
+                        ) : (
+                          <span className="text-[10px] font-black text-slate-300 uppercase italic">Awaiting CEO Action</span>
+                        )
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1653,47 +1801,66 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="space-y-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="glass-card rounded-[2.5rem] p-8 border-b-4 border-blue-500">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Weekly OT Pool</p>
+              <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">Weekly OT Pool</p>
               <h2 className="text-4xl font-black text-slate-900">{formatDuration(overtimeUsers.reduce((sum, u) => sum + calculateWeeklyOvertime(u.id, visibleRecords), 0))}</h2>
             </div>
             <div className="glass-card rounded-[2.5rem] p-8 border-b-4 border-emerald-500">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Active OT Claims</p>
+              <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">Active OT Claims</p>
               <h2 className="text-4xl font-black text-slate-900">{overtimeUsers.filter(u => calculateWeeklyOvertime(u.id, visibleRecords) > 0).length} Employees</h2>
             </div>
             <div className="glass-card rounded-[2.5rem] p-8 border-b-4 border-amber-500">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Avg. Weekly OT</p>
+              <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">Avg. Weekly OT</p>
               <h2 className="text-4xl font-black text-slate-900">{formatDuration(overtimeUsers.reduce((sum, u) => sum + calculateWeeklyOvertime(u.id, visibleRecords), 0) / (overtimeUsers.length || 1))}</h2>
             </div>
           </div>
-          <div className="glass-card rounded-[2.5rem]">
+          <div className="glass-card rounded-[2.5rem] p-0 overflow-hidden border border-white/40 shadow-2xl shadow-blue-500/5">
+            <div className="p-8 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Efficiency Roster</h3>
+              <div className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 bg-white px-4 py-1.5 rounded-full border border-slate-100 shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                Weekly Aggregates
+              </div>
+            </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[680px] text-left">
-              <thead>
-                <tr className="bg-slate-50/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Employee</th>
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Total Hours (Week)</th>
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">OT Hours</th>
-                  <th className="px-4 md:px-6 2xl:px-8 py-4 md:py-5">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {overtimeUsers.map(u => {
-                  const ot = calculateWeeklyOvertime(u.id, visibleRecords);
-                  return (
-                    <tr key={u.id}>
-                      <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-slate-900">{u.name}</td>
-                      <td className="px-4 md:px-6 2xl:px-8 py-6 font-bold text-slate-600">{formatDuration(visibleRecords.filter(r => r.userId === u.id).reduce((sum, r) => sum + (r.totalHours || 0), 0))}</td>
-                      <td className="px-4 md:px-6 2xl:px-8 py-6 font-black text-blue-600">{ot > 0 ? formatDuration(ot) : '--'}</td>
-                      <td className="px-4 md:px-6 2xl:px-8 py-6"><span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${ot > 0 ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>{ot > 0 ? 'OT Eligible' : 'Standard'}</span></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+              <table className="w-full min-w-[800px] text-left">
+                <thead>
+                  <tr className="bg-slate-50/80 text-[11px] font-black uppercase tracking-widest text-slate-500">
+                    <th className="px-8 py-5">Employee</th>
+                    <th className="px-8 py-5 text-center">Standard Hours</th>
+                    <th className="px-8 py-5 text-center text-blue-600">Overtime Pool</th>
+                    <th className="px-8 py-5 text-right">Benefit Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {overtimeUsers.map(u => {
+                    const ot = calculateWeeklyOvertime(u.id, visibleRecords);
+                    const totalHrs = visibleRecords.filter(r => r.userId === u.id).reduce((sum, r) => sum + (r.totalHours || 0), 0);
+                    return (
+                      <tr key={u.id} className="hover:bg-slate-50/80 transition-all group">
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 font-black text-xs shadow-sm group-hover:scale-105 transition-transform">
+                              {toInitials(u.name)}
+                            </div>
+                            <span className="font-black text-slate-900 text-sm">{u.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6 font-bold text-slate-500 text-center text-sm">{formatDuration(totalHrs)}</td>
+                        <td className="px-8 py-6 font-black text-blue-600 text-center text-sm">{ot > 0 ? formatDuration(ot) : <span className="text-slate-300">--</span>}</td>
+                        <td className="px-8 py-6 text-right">
+                          <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm border transition-all ${ot > 0 ? 'bg-blue-50 text-blue-600 border-blue-100 group-hover:bg-blue-600 group-hover:text-white' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                            {ot > 0 ? 'OT Eligible' : 'Standard'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
               </table>
             </div>
           </div>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-2">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">
               Showing {sortedAttendance.length === 0 ? 0 : attendanceStartIndex + 1}
               -
               {Math.min(attendanceStartIndex + attendancePageSize, sortedAttendance.length)} of {sortedAttendance.length}
@@ -1707,7 +1874,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               >
                 Prev
               </button>
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+              <span className="text-[11px] font-black uppercase tracking-widest text-slate-600">
                 Page {safeAttendancePage} / {totalAttendancePages}
               </span>
               <button
@@ -1725,63 +1892,79 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {tab === 'personnel' && (
         <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 px-4">
-            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Workforce Directory</h3>
-            <button onClick={() => { setIsAddingUser(true); setEmployeeIdSeed(getNextEmployeeSeed(users)); setUserForm({ role: Role.EMPLOYEE }); setEssForm({}); }} className="bg-blue-600 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 transition-all flex items-center gap-2 w-full sm:w-auto justify-center">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4"></path></svg>
-              Add New Employee
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-4">
+            <div className="space-y-1">
+              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Workforce Directory</h3>
+              <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Manage your global team presence</p>
+            </div>
+            <button
+              onClick={() => { setIsAddingUser(true); setEmployeeIdSeed(getNextEmployeeSeed(users)); setUserForm({ role: Role.EMPLOYEE }); setEssForm({}); }}
+              className="bg-slate-900 text-white px-8 py-4 rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all flex items-center gap-3 shrink-0"
+            >
+              <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4"></path></svg>
+              </div>
+              Onboard New Talent
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
             {workforceUsers.map(u => {
               const profile = essProfiles.find(p => p.userId === u.id);
               const progress = getChecklistProgress(u.id);
               const totalSalary = calculateTotalSalary(u.basicSalary, u.allowances, u.salary);
               return (
-                <div key={u.id} className="glass-card rounded-[2.5rem] p-8 space-y-6 border border-slate-100 hover:border-blue-200 transition-all">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-black text-slate-900">{u.name}</h3>
-                      <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">{u.position || 'Genral Staff'}</p>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">ID: {u.employeeId}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{u.role}</p>
-                        <span className="text-[9px] font-bold text-slate-500">•</span>
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{u.workMode || 'Onsite'}</span>
-                        {u.grade && (
-                          <>
-                            <span className="text-[9px] font-bold text-slate-500">•</span>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{u.grade}</span>
-                          </>
-                        )}
-                        <span className="text-[9px] font-bold text-slate-500">•</span>
-                        <span className="text-[9px] font-black text-slate-400">PKR {totalSalary.toLocaleString()}</span>
+                <div key={u.id} className="glass-card rounded-[3rem] p-8 border border-white/40 shadow-xl shadow-blue-500/5 hover:shadow-2xl hover:shadow-blue-500/10 transition-all duration-500 group relative overflow-hidden flex flex-col justify-between">
+                  <div className="absolute top-0 right-0 p-8">
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xs font-black shadow-sm border transition-all group-hover:scale-110 ${progress === 100 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                      {progress}%
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-5">
+                      <div className="w-16 h-16 rounded-3xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400 font-black text-xl shadow-inner group-hover:scale-105 transition-transform">
+                        {toInitials(u.name)}
                       </div>
-                      {u.teamLead && (
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Team Lead: {u.teamLead}</p>
-                      )}
+                      <div className="space-y-1">
+                        <h3 className="font-black text-slate-900 text-lg leading-tight">{u.name}</h3>
+                        <p className="text-[11px] font-black text-blue-600 uppercase tracking-widest">{u.position || 'General Staff'}</p>
+                      </div>
                     </div>
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xs font-black ${progress === 100 ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>{progress}%</div>
-                  </div>
-                  <div className="space-y-4">
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Employee ID</p>
+                        <p className="text-xs font-black text-slate-900">{u.employeeId}</p>
+                      </div>
+                      <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Work Mode</p>
+                        <p className="text-xs font-black text-slate-900">{u.workMode || 'Onsite'}</p>
+                      </div>
+                      <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 col-span-2">
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Annual Remuneration</p>
+                        <p className="text-xs font-black text-slate-900">PKR {totalSalary.toLocaleString()}</p>
+                      </div>
+                    </div>
+
                     <div>
-                      <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest mb-2">Checklist Status</p>
-                      <div className="w-full h-1.5 bg-slate-50 rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all" style={{ width: `${progress}%` }}></div></div>
-                    </div>
-                    <div className="bg-slate-50 p-4 rounded-2xl space-y-3">
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Emergency Contact</p>
-                      {profile ? (
-                        <div className="space-y-1">
-                          <p className="text-[10px] font-bold text-slate-900">{profile.emergencyContactName}</p>
-                          <p className="text-[10px] font-medium text-slate-500">{profile.emergencyContactPhone}</p>
-                        </div>
-                      ) : (
-                        <p className="text-[10px] font-bold text-slate-300 italic">Profile Pending Update</p>
-                      )}
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Document Checklist</p>
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{progress === 100 ? 'Verified' : 'Incomplete'}</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden shadow-inner">
+                        <div className={`h-full transition-all duration-1000 ${progress === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${progress}%` }}></div>
+                      </div>
                     </div>
                   </div>
-                  <div className={`grid gap-3 ${canDeleteUsers ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                    <button onClick={() => startEditingUser(u)} className="w-full py-4 rounded-xl bg-white border border-slate-100 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all">Manage Personnel</button>
+
+                  <div className="mt-8 flex gap-3">
+                    <button
+                      onClick={() => startEditingUser(u)}
+                      className="flex-1 py-4 rounded-2xl bg-white border border-slate-200 text-[11px] font-black uppercase tracking-widest hover:bg-slate-900 hover:text-white transition-all shadow-sm active:scale-95"
+                    >
+                      Management
+                    </button>
                     {canDeleteUsers && (
                       <button
                         type="button"
@@ -1793,9 +1976,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           if (!window.confirm(`Delete ${u.name}? This will remove all related records.`)) return;
                           onDeleteUser(u.id);
                         }}
-                        className="w-full py-4 rounded-xl bg-rose-50 text-rose-600 border border-rose-100 text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all"
+                        className="w-14 py-4 rounded-2xl bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center hover:bg-rose-600 hover:text-white transition-all shadow-sm active:scale-95"
+                        title="Delete User"
                       >
-                        Delete User
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                       </button>
                     )}
                   </div>
@@ -1810,13 +1994,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-4 space-y-6">
             {(user.role === Role.HR || user.role === Role.CEO) && (
-              <div className="glass-card rounded-[2.5rem] p-8 space-y-4">
-                <div className="flex items-start justify-between gap-3">
+              <div className="glass-card rounded-[3rem] p-0 overflow-hidden border border-white/40 shadow-2xl shadow-blue-500/5">
+                <div className="p-8 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">
-                      {user.role === Role.CEO ? 'Employee Salary Snapshot' : 'My Salary Snapshot'}
+                      {user.role === Role.CEO ? 'Employee Salary Analysis' : 'Personal Salary Analysis'}
                     </h3>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mt-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
                       {(user.role === Role.CEO ? selectedSnapshot?.monthLabel : mySnapshot?.monthLabel) || now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                     </p>
                   </div>
@@ -1824,85 +2009,87 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const targetUser = user.role === Role.CEO
-                          ? users.find(u => u.id === selectedDocUserId) || null
-                          : user;
+                        const targetUser = user.role === Role.CEO ? users.find(u => u.id === selectedDocUserId) || null : user;
                         const snapshot = user.role === Role.CEO ? selectedSnapshot : mySnapshot;
-                        if (targetUser && snapshot) {
-                          downloadSalarySlipForUser(targetUser, snapshot);
-                        }
+                        if (targetUser && snapshot) downloadSalarySlipForUser(targetUser, snapshot);
                       }}
-                      className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition-all"
+                      className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all flex items-center gap-2"
                     >
-                      Download
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                      Extract Slip
                     </button>
                   )}
                 </div>
-                {user.role === Role.CEO && !selectedSnapshot ? (
-                  <div className="text-center py-8 bg-slate-50 rounded-[2rem] font-black text-slate-300 uppercase text-[9px] tracking-widest">
-                    Select an employee to view snapshot
-                  </div>
-                ) : (
-                  <>
-                    {(() => {
-                      const snapshot = user.role === Role.CEO ? selectedSnapshot : mySnapshot;
-                      if (!snapshot) return null;
-                      return (
-                        <>
-                          <div className="space-y-2 text-xs">
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-500">Base Salary</span>
-                              <span className="font-black text-slate-900">{formatCurrency(snapshot.monthlySalary)}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-500">Unpaid Leaves ({snapshot.unpaidLeaveDays} days)</span>
-                              <span className="font-black text-rose-500">- {formatCurrency(snapshot.leaveDeduction)}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-500">Absents (auto)</span>
-                              <span className="font-black text-slate-700">{snapshot.absentDaysThisMonth} days</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-500">Early Checkout ({snapshot.earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</span>
-                              <span className="font-black text-rose-500">- {formatCurrency(snapshot.earlyCheckoutDeduction)}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-500">Overtime ({snapshot.overtimeHoursThisMonth.toFixed(2)} hrs)</span>
-                              <span className="font-black text-emerald-600">+ {formatCurrency(snapshot.overtimePay)}</span>
-                            </div>
-                            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                              <span className="font-bold text-slate-600">Taxable Salary</span>
-                              <span className="font-black text-slate-900">{formatCurrency(snapshot.taxableSalary)}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-500">Tax (PK progressive)</span>
-                              <span className="font-black text-amber-600">- {formatCurrency(snapshot.monthlyTax)}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-600">Salary After Tax</span>
-                              <span className="font-black text-slate-900">{formatCurrency(snapshot.salaryAfterTax)}</span>
-                            </div>
-                            <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                              <span className="font-black text-slate-900">Salary with Overtime</span>
-                              <span className="font-black text-blue-600">{formatCurrency(snapshot.netPay)}</span>
+
+                <div className="p-8">
+                  {user.role === Role.CEO && !selectedSnapshot ? (
+                    <div className="text-center py-10 space-y-4">
+                      <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-200">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                      </div>
+                      <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Awaiting selection from document generator</p>
+                    </div>
+                  ) : (
+                    <>
+                      {(() => {
+                        const snapshot = user.role === Role.CEO ? selectedSnapshot : mySnapshot;
+                        if (!snapshot) return null;
+                        return (
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-1 gap-1">
+                              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Core Remuneration</span>
+                                <span className="font-black text-slate-900">{formatCurrency(snapshot.monthlySalary)}</span>
+                              </div>
+
+                              <div className="space-y-2 px-2 py-4">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="font-bold text-slate-500">Unpaid Absence ({snapshot.unpaidLeaveDays}d)</span>
+                                  <span className="font-black text-rose-500">-{formatCurrency(snapshot.leaveDeduction)}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="font-bold text-slate-500">Early Departure ({snapshot.earlyCheckoutHoursThisMonth.toFixed(1)}h)</span>
+                                  <span className="font-black text-rose-500">-{formatCurrency(snapshot.earlyCheckoutDeduction)}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="font-bold text-slate-500 text-blue-600">Performance Overtime</span>
+                                  <span className="font-black text-emerald-600">+{formatCurrency(snapshot.overtimePay)}</span>
+                                </div>
+                              </div>
+
+                              <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 space-y-2 mt-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Adjusted Taxable</span>
+                                  <span className="font-black text-slate-900">{formatCurrency(snapshot.taxableSalary)}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Progressive Tax</span>
+                                  <span className="font-black text-rose-600">-{formatCurrency(snapshot.monthlyTax)}</span>
+                                </div>
+                              </div>
+
+                              <div className="p-6 bg-slate-900 rounded-[2rem] shadow-xl shadow-slate-900/10 mt-6 flex flex-col items-center">
+                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Final Net Disbursement</span>
+                                <span className="text-2xl font-black text-white">{formatCurrency(snapshot.netPay)}</span>
+                                <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest mt-2">Exempt of Overtime Tax</p>
+                              </div>
                             </div>
                           </div>
-                          <p className="text-[8px] font-bold text-slate-300 uppercase text-center">Overtime is not taxed</p>
-                        </>
-                      );
-                    })()}
-                  </>
-                )}
+                        );
+                      })()}
+                    </>
+                  )}
+                </div>
               </div>
             )}
             <div className="glass-card rounded-[2.5rem] p-8 space-y-6">
               <div>
                 <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Document Generator</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">HR / CEO / Super Admin</p>
+                <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mt-1">HR / CEO / Super Admin</p>
               </div>
 
               <div className="space-y-1">
-                <label htmlFor="doc-type" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Document Type</label>
+                <label htmlFor="doc-type" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Document Type</label>
                 <select id="doc-type" name="documentType" value={docType} onChange={e => setDocType(e.target.value as DocumentType)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800">
                   <option value="salary-slip">Salary Slip</option>
                   <option value="offer-letter">Offer Letter</option>
@@ -1913,7 +2100,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="space-y-4">
                 <div className="space-y-1">
-                  <label htmlFor="doc-employee-select" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Select Employee</label>
+                  <label htmlFor="doc-employee-select" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Select Employee</label>
                   <select
                     id="doc-employee-select"
                     name="documentEmployee"
@@ -1928,10 +2115,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ))}
                   </select>
                 </div>
-                <div className="space-y-1"><label htmlFor="doc-employee-name" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee Name</label><input id="doc-employee-name" name="employeeName" type="text" value={docForm.employeeName} onChange={e => updateDocForm('employeeName', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="doc-employee-id" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label><input id="doc-employee-id" name="employeeId" type="text" value={docForm.employeeId} onChange={e => updateDocForm('employeeId', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="doc-employee-name" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Employee Name</label><input id="doc-employee-name" name="employeeName" type="text" value={docForm.employeeName} onChange={e => updateDocForm('employeeName', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="doc-employee-id" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Employee ID</label><input id="doc-employee-id" name="employeeId" type="text" value={docForm.employeeId} onChange={e => updateDocForm('employeeId', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
                 <div className="space-y-1">
-                  <label htmlFor="doc-role" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Role / Designation</label>
+                  <label htmlFor="doc-role" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Role / Designation</label>
                   <select
                     id="doc-role"
                     name="role"
@@ -1947,19 +2134,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 {isOtherDocRole && (
                   <div className="space-y-1">
-                    <label htmlFor="doc-role-custom" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Custom Role</label>
+                    <label htmlFor="doc-role-custom" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Custom Role</label>
                     <input id="doc-role-custom" name="roleCustom" type="text" value={docForm.role} onChange={e => updateDocForm('role', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                   </div>
                 )}
-                <div className="space-y-1"><label htmlFor="doc-issue-date" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Issue Date</label><input id="doc-issue-date" name="issueDate" type="date" value={docForm.issueDate} onChange={e => updateDocForm('issueDate', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="doc-location" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Location</label><input id="doc-location" name="location" type="text" value={docForm.location} onChange={e => updateDocForm('location', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="doc-signatory" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">CEO Designation</label><input id="doc-signatory" name="signatory" type="text" value={docForm.signatory} onChange={e => updateDocForm('signatory', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="doc-ceo-name" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">CEO Name</label><input id="doc-ceo-name" name="ceoName" type="text" value={docForm.ceoName} onChange={e => updateDocForm('ceoName', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="doc-issue-date" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Issue Date</label><input id="doc-issue-date" name="issueDate" type="date" value={docForm.issueDate} onChange={e => updateDocForm('issueDate', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="doc-location" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Location</label><input id="doc-location" name="location" type="text" value={docForm.location} onChange={e => updateDocForm('location', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="doc-signatory" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">CEO Designation</label><input id="doc-signatory" name="signatory" type="text" value={docForm.signatory} onChange={e => updateDocForm('signatory', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="doc-ceo-name" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">CEO Name</label><input id="doc-ceo-name" name="ceoName" type="text" value={docForm.ceoName} onChange={e => updateDocForm('ceoName', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
               </div>
 
               {(docType === 'offer-letter' || docType === 'appointment-letter') && (
                 <div className="space-y-1">
-                  <label htmlFor="doc-joining-date" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Joining Date</label>
+                  <label htmlFor="doc-joining-date" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Joining Date</label>
                   <input id="doc-joining-date" name="joiningDate" type="date" value={docForm.startDate} onChange={e => updateDocForm('startDate', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                 </div>
               )}
@@ -1967,19 +2154,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {docType === 'experience-letter' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label htmlFor="doc-experience-start" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Start Date</label>
+                    <label htmlFor="doc-experience-start" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Start Date</label>
                     <input id="doc-experience-start" name="experienceStartDate" type="date" value={docForm.startDate} onChange={e => updateDocForm('startDate', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="doc-experience-end" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">End Date</label>
+                    <label htmlFor="doc-experience-end" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">End Date</label>
                     <input id="doc-experience-end" name="experienceEndDate" type="date" value={docForm.endDate} onChange={e => updateDocForm('endDate', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                   </div>
                 </div>
               )}
+              {docType === 'appointment-letter' && (
+                <>
+                  <div className="space-y-1">
+                    <label htmlFor="doc-salary" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Monthly Basic Salary</label>
+                    <input id="doc-salary" name="salary" type="number" value={docForm.salary} onChange={e => updateDocForm('salary', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" placeholder="e.g. 50000" />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="doc-commission" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Commission (on sales)</label>
+                    <input id="doc-commission" name="commission" type="text" value={docForm.commission} onChange={e => updateDocForm('commission', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" placeholder="e.g. 5% on sales" />
+                  </div>
+                </>
+              )}
 
               {docType !== 'salary-slip' && (
                 <div className="space-y-2">
-                  <label htmlFor="doc-signature" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">CEO Signature (PNG/SVG)</label>
+                  <label htmlFor="doc-signature" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">CEO Signature (PNG/SVG)</label>
                   <input id="doc-signature" name="signatureFile" type="file" accept="image/png,image/svg+xml" onChange={e => handleSignatureUpload(e.target.files?.[0] || null)} className="w-full text-xs font-bold text-slate-500" />
                   {signatureDataUrl && (
                     <button type="button" onClick={() => setSignatureDataUrl(null)} className="text-[10px] font-black uppercase tracking-widest text-rose-600">
@@ -1992,27 +2191,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {docType === 'salary-slip' && (
                 <div className="space-y-4">
                   <div className="space-y-1">
-                    <label htmlFor="doc-working-days" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Working Days</label>
+                    <label htmlFor="doc-working-days" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Working Days</label>
                     <input id="doc-working-days" name="workingDays" type="number" value={docForm.workingDays} onChange={e => updateDocForm('workingDays', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="doc-basic-pay" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Basic Pay</label>
+                    <label htmlFor="doc-basic-pay" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Basic Pay</label>
                     <input id="doc-basic-pay" name="basicPay" type="number" value={docForm.basicPay} onChange={e => updateDocForm('basicPay', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="doc-home-allowance" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Home Allowance</label>
+                    <label htmlFor="doc-home-allowance" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Home Allowance</label>
                     <input id="doc-home-allowance" name="homeAllowance" type="number" value={docForm.homeAllowance} onChange={e => updateDocForm('homeAllowance', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="doc-travel-allowance" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Travel Allowance</label>
+                    <label htmlFor="doc-travel-allowance" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Travel Allowance</label>
                     <input id="doc-travel-allowance" name="travelAllowance" type="number" value={docForm.travelAllowance} onChange={e => updateDocForm('travelAllowance', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="doc-internet-allowance" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Internet and Phone</label>
+                    <label htmlFor="doc-internet-allowance" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Internet and Phone</label>
                     <input id="doc-internet-allowance" name="internetAllowance" type="number" value={docForm.internetAllowance} onChange={e => updateDocForm('internetAllowance', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Tax (PK progressive)</label>
+                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Tax (PK progressive)</label>
                     <div className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent font-black text-slate-800">
                       PKR {docTaxAmount.toLocaleString()}
                     </div>
@@ -2021,7 +2220,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </p>
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="doc-other-deductions" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Other Deductions</label>
+                    <label htmlFor="doc-other-deductions" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Other Deductions</label>
                     <input id="doc-other-deductions" name="otherDeductions" type="number" value={docForm.otherDeductions} onChange={e => updateDocForm('otherDeductions', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                   </div>
                 </div>
@@ -2043,7 +2242,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="flex items-center justify-between px-2 pb-4">
                 <div>
                   <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">Preview</h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live draft</p>
+                  <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Live draft</p>
                 </div>
                 <button onClick={downloadDocument} className="px-5 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-200 transition-all">Export PDF</button>
               </div>
@@ -2069,12 +2268,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
+      {tab === 'tasks' && (
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <TaskBoard
+            tasks={tasks}
+            users={users}
+            currentUser={user}
+            isManager={true}
+            onAddTask={onAddTask}
+            onUpdateTask={onUpdateTask}
+            onDeleteTask={onDeleteTask}
+          />
+        </div>
+      )}
+
       {/* Add Attendance Modal */}
       {isAddingRecord && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-[2.5rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95 duration-200">
             <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase mb-2">Add Attendance</h3>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8">Super Admin Only</p>
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-8">Super Admin Only</p>
             <form
               onSubmit={e => {
                 e.preventDefault();
@@ -2111,7 +2324,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               className="space-y-6"
             >
               <div className="space-y-1">
-                <label htmlFor="add-attendance-user" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee</label>
+                <label htmlFor="add-attendance-user" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Employee</label>
                 <select
                   id="add-attendance-user"
                   name="attendanceUser"
@@ -2127,20 +2340,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </select>
               </div>
               <div className="space-y-1">
-                <label htmlFor="add-attendance-date" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Shift Date</label>
+                <label htmlFor="add-attendance-date" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Shift Date</label>
                 <input id="add-attendance-date" name="attendanceDate" type="date" value={newRecordDate} onChange={e => setNewRecordDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" required />
               </div>
               <div className="space-y-1">
-                <label htmlFor="add-attendance-out-date" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check Out Date</label>
+                <label htmlFor="add-attendance-out-date" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Check Out Date</label>
                 <input id="add-attendance-out-date" name="attendanceOutDate" type="date" value={newRecordOutDate} onChange={e => setNewRecordOutDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label htmlFor="add-attendance-in" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check In</label>
+                  <label htmlFor="add-attendance-in" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Check In</label>
                   <input id="add-attendance-in" name="attendanceCheckIn" type="time" value={newRecordCheckIn} onChange={e => setNewRecordCheckIn(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" required />
                 </div>
                 <div className="space-y-1">
-                  <label htmlFor="add-attendance-out" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check Out</label>
+                  <label htmlFor="add-attendance-out" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Check Out</label>
                   <input id="add-attendance-out" name="attendanceCheckOut" type="time" value={newRecordCheckOut} onChange={e => setNewRecordCheckOut(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" />
                 </div>
               </div>
@@ -2158,11 +2371,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-[2.5rem] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95 duration-200">
             <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase mb-2">Manual Correction</h3>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8">Record ID: {editingRecord.id}</p>
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-8">Record ID: {editingRecord.id}</p>
             <form onSubmit={handleEditRecordSubmit} className="space-y-6">
-              <div className="space-y-1"><label htmlFor="manual-edit-date" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Calendar Date</label><input id="manual-edit-date" name="manualDate" type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div>
-              <div className="space-y-1"><label htmlFor="manual-edit-out-date" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check Out Date</label><input id="manual-edit-out-date" name="manualOutDate" type="date" value={editOutDate} onChange={e => setEditOutDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div>
-              <div className="grid grid-cols-2 gap-4"><div className="space-y-1"><label htmlFor="manual-edit-in" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check In</label><input id="manual-edit-in" name="manualCheckIn" type="time" value={editInTime} onChange={e => setEditInTime(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div><div className="space-y-1"><label htmlFor="manual-edit-out" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Check Out</label><input id="manual-edit-out" name="manualCheckOut" type="time" value={editOutTime} onChange={e => setEditOutTime(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div></div>
+              <div className="space-y-1"><label htmlFor="manual-edit-date" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Calendar Date</label><input id="manual-edit-date" name="manualDate" type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div>
+              <div className="space-y-1"><label htmlFor="manual-edit-out-date" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Check Out Date</label><input id="manual-edit-out-date" name="manualOutDate" type="date" value={editOutDate} onChange={e => setEditOutDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div>
+              <div className="grid grid-cols-2 gap-4"><div className="space-y-1"><label htmlFor="manual-edit-in" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Check In</label><input id="manual-edit-in" name="manualCheckIn" type="time" value={editInTime} onChange={e => setEditInTime(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div><div className="space-y-1"><label htmlFor="manual-edit-out" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Check Out</label><input id="manual-edit-out" name="manualCheckOut" type="time" value={editOutTime} onChange={e => setEditOutTime(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div></div>
               <div className="flex flex-wrap gap-3 pt-4">
                 {isSuperadmin && (
                   <button
@@ -2203,13 +2416,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter mb-8">{isAddingUser ? 'Add New Employee' : 'Edit Employee Details'}</h3>
             <form onSubmit={handleUserSubmit} className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-1"><label htmlFor="user-first-name" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">First Name</label><input id="user-first-name" name="firstName" required type="text" value={userForm.firstName || ''} onChange={e => setUserForm({ ...userForm, firstName: e.target.value, name: formatFullName(e.target.value, userForm.lastName) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="user-last-name" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Last Name</label><input id="user-last-name" name="lastName" required type="text" value={userForm.lastName || ''} onChange={e => setUserForm({ ...userForm, lastName: e.target.value, name: formatFullName(userForm.firstName, e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="user-dob" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Date of Birth</label><input id="user-dob" name="dob" type="date" value={userForm.dob || ''} onChange={e => setUserForm({ ...userForm, dob: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="user-phone" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Phone Number</label><input id="user-phone" name="phone" type="tel" value={userForm.phone || ''} onChange={e => setUserForm({ ...userForm, phone: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="user-email" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Email Address</label><input id="user-email" name="email" required type="email" value={userForm.email || ''} onChange={e => setUserForm({ ...userForm, email: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-first-name" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">First Name</label><input id="user-first-name" name="firstName" required type="text" value={userForm.firstName || ''} onChange={e => setUserForm({ ...userForm, firstName: e.target.value, name: formatFullName(e.target.value, userForm.lastName) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-last-name" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Last Name</label><input id="user-last-name" name="lastName" required type="text" value={userForm.lastName || ''} onChange={e => setUserForm({ ...userForm, lastName: e.target.value, name: formatFullName(userForm.firstName, e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-dob" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Date of Birth</label><input id="user-dob" name="dob" type="date" value={userForm.dob || ''} onChange={e => setUserForm({ ...userForm, dob: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-phone" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Phone Number</label><input id="user-phone" name="phone" type="tel" value={userForm.phone || ''} onChange={e => setUserForm({ ...userForm, phone: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-email" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Email Address</label><input id="user-email" name="email" required type="email" value={userForm.email || ''} onChange={e => setUserForm({ ...userForm, email: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
                 <div className="space-y-1">
-                  <label htmlFor="user-password" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Security Key (Password)</label>
+                  <label htmlFor="user-password" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Security Key (Password)</label>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <input id="user-password" name="password" required type="text" value={userForm.password || ''} onChange={e => setUserForm({ ...userForm, password: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                     {canResetPassword && (
@@ -2224,7 +2437,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label htmlFor="user-pin" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">4 Digit PIN (HR Only)</label>
+                  <label htmlFor="user-pin" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">4 Digit PIN (HR Only)</label>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <input
                       id="user-pin"
@@ -2244,13 +2457,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       Reset PIN
                     </button>
                   </div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Employees can log in with PIN instead of password.</p>
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-2">Employees can log in with PIN instead of password.</p>
                 </div>
-                <div className="space-y-1"><label htmlFor="user-employee-id" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee ID</label><input id="user-employee-id" name="employeeId" required readOnly type="text" value={formatEmployeeId(userForm.firstName, userForm.lastName, employeeIdSeed)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent outline-none font-bold text-slate-800 text-slate-500" /></div>
-                <div className="space-y-1"><label htmlFor="user-basic-salary" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Basic Salary (Monthly)</label><input id="user-basic-salary" name="basicSalary" type="number" value={userForm.basicSalary || ''} onChange={e => setUserForm({ ...userForm, basicSalary: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="user-allowances" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Allowances (Monthly)</label><input id="user-allowances" name="allowances" type="number" value={userForm.allowances || ''} onChange={e => setUserForm({ ...userForm, allowances: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-employee-id" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Employee ID</label><input id="user-employee-id" name="employeeId" required readOnly type="text" value={formatEmployeeId(userForm.firstName, userForm.lastName, employeeIdSeed)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent outline-none font-bold text-slate-800 text-slate-500" /></div>
+                <div className="space-y-1"><label htmlFor="user-basic-salary" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Basic Salary (Monthly)</label><input id="user-basic-salary" name="basicSalary" type="number" value={userForm.basicSalary || ''} onChange={e => setUserForm({ ...userForm, basicSalary: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-allowances" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Allowances (Monthly)</label><input id="user-allowances" name="allowances" type="number" value={userForm.allowances || ''} onChange={e => setUserForm({ ...userForm, allowances: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
                 <div className="space-y-1">
-                  <label htmlFor="user-position" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Job Position</label>
+                  <label htmlFor="user-position" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Job Position</label>
                   <select
                     id="user-position"
                     name="position"
@@ -2265,18 +2478,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ))}
                   </select>
                 </div>
-                <div className="space-y-1"><label htmlFor="user-role" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Corporate Role</label><select id="user-role" name="role" required value={userForm.role || Role.EMPLOYEE} onChange={e => setUserForm({ ...userForm, role: e.target.value as Role })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800">{roleOptions.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-                <div className="space-y-1"><label htmlFor="user-work-mode" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Work Mode</label><select id="user-work-mode" name="workMode" required value={userForm.workMode || 'Onsite'} onChange={e => setUserForm({ ...userForm, workMode: e.target.value as User['workMode'] })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"><option value="Onsite">Onsite</option><option value="Remote">Remote</option></select></div>
-                <div className="space-y-1"><label htmlFor="user-grade" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Employee Grade</label><select id="user-grade" name="grade" value={userForm.grade || ''} onChange={e => setUserForm({ ...userForm, grade: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"><option value="">Select Grade</option>{gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}</select></div>
-                <div className="space-y-1"><label htmlFor="user-team-lead" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Team Lead (Reporting To)</label><input id="user-team-lead" name="teamLead" type="text" value={userForm.teamLead || ''} onChange={e => setUserForm({ ...userForm, teamLead: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-role" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Corporate Role</label><select id="user-role" name="role" required value={userForm.role || Role.EMPLOYEE} onChange={e => setUserForm({ ...userForm, role: e.target.value as Role })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800">{roleOptions.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                <div className="space-y-1"><label htmlFor="user-work-mode" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Work Mode</label><select id="user-work-mode" name="workMode" required value={userForm.workMode || 'Onsite'} onChange={e => setUserForm({ ...userForm, workMode: e.target.value as User['workMode'] })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"><option value="Onsite">Onsite</option><option value="Remote">Remote</option></select></div>
+                <div className="space-y-1"><label htmlFor="user-grade" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Employee Grade</label><select id="user-grade" name="grade" value={userForm.grade || ''} onChange={e => setUserForm({ ...userForm, grade: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"><option value="">Select Grade</option>{gradeOptions.map(g => <option key={g} value={g}>{g}</option>)}</select></div>
+                <div className="space-y-1"><label htmlFor="user-team-lead" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Team Lead (Reporting To)</label><input id="user-team-lead" name="teamLead" type="text" value={userForm.teamLead || ''} onChange={e => setUserForm({ ...userForm, teamLead: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
               </div>
 
               <div className="pt-8 border-t border-slate-100">
                 <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Emergency Contact Info</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1"><label htmlFor="user-ess-name" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Emergency Contact</label><input id="user-ess-name" name="emergencyContactName" type="text" value={essForm.emergencyContactName || ''} onChange={e => setEssForm({ ...essForm, emergencyContactName: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                  <div className="space-y-1"><label htmlFor="user-ess-phone" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Emergency Phone</label><input id="user-ess-phone" name="emergencyContactPhone" type="text" value={essForm.emergencyContactPhone || ''} onChange={e => setEssForm({ ...essForm, emergencyContactPhone: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                  <div className="space-y-1 md:col-span-2"><label htmlFor="user-ess-relation" className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Emergency Relation</label><input id="user-ess-relation" name="emergencyContactRelation" type="text" value={essForm.emergencyContactRelation || ''} onChange={e => setEssForm({ ...essForm, emergencyContactRelation: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                  <div className="space-y-1"><label htmlFor="user-ess-name" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Emergency Contact</label><input id="user-ess-name" name="emergencyContactName" type="text" value={essForm.emergencyContactName || ''} onChange={e => setEssForm({ ...essForm, emergencyContactName: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                  <div className="space-y-1"><label htmlFor="user-ess-phone" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Emergency Phone</label><input id="user-ess-phone" name="emergencyContactPhone" type="text" value={essForm.emergencyContactPhone || ''} onChange={e => setEssForm({ ...essForm, emergencyContactPhone: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                  <div className="space-y-1 md:col-span-2"><label htmlFor="user-ess-relation" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Emergency Relation</label><input id="user-ess-relation" name="emergencyContactRelation" type="text" value={essForm.emergencyContactRelation || ''} onChange={e => setEssForm({ ...essForm, emergencyContactRelation: e.target.value })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
                 </div>
               </div>
 

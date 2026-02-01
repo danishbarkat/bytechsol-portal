@@ -2,6 +2,8 @@ const isValidDate = (date: Date) => Number.isFinite(date.getTime());
 
 const isValidDateString = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
+export const normalizeEmployeeId = (value: string) => value.trim().toUpperCase().replace(/\s+/g, '');
+
 export const getLocalDateString = (date: Date = new Date(), timeZone = 'Asia/Karachi'): string => {
   if (!isValidDate(date)) return '';
   return new Intl.DateTimeFormat('en-CA', {

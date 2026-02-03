@@ -102,6 +102,13 @@ export interface AppNotification {
 
 export type TaskStatus = 'Todo' | 'In Progress' | 'Done';
 
+export interface TaskComment {
+  id: string;
+  authorId: string;
+  message: string;
+  createdAt: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -110,5 +117,7 @@ export interface Task {
   assignerId: string;
   status: TaskStatus;
   dueDate: string;
+  progress?: string;
+  comments?: TaskComment[];
   createdAt: string;
 }

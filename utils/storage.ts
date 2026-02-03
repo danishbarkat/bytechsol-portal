@@ -203,6 +203,19 @@ const mapChecklistToDb = (checklist: UserChecklist) => ({
   items: checklist.items
 });
 
+const parseComments = (value: unknown) => {
+  if (Array.isArray(value)) return value as Task['comments'];
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
 const mapTaskFromDb = (row: Record<string, any>): Task => ({
   id: String(pickValue(row, ['id'], '')),
   title: String(pickValue(row, ['title'], '')),
@@ -211,6 +224,8 @@ const mapTaskFromDb = (row: Record<string, any>): Task => ({
   assignerId: String(pickValue(row, ['assigner_id', 'assignerId'], '')),
   status: pickValue(row, ['status'], 'Todo'),
   dueDate: String(pickValue(row, ['due_date', 'dueDate'], '')),
+  progress: String(pickValue(row, ['progress'], '')),
+  comments: parseComments(pickValue(row, ['comments'], [])),
   createdAt: String(pickValue(row, ['created_at', 'createdAt'], ''))
 });
 
@@ -222,6 +237,8 @@ const mapTaskToDb = (task: Task) => ({
   assigner_id: task.assignerId,
   status: task.status,
   due_date: task.dueDate,
+  progress: task.progress || null,
+  comments: task.comments || [],
   created_at: task.createdAt
 });
 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { User, Task, TaskStatus, Role } from '../types';
+import { User, Task, TaskStatus, Role, TaskComment } from '../types';
 import { normalizeEmployeeId } from '../utils/dates'; // Using normalizeEmployeeId for consistency
 
 const toInitials = (value?: string) => {
@@ -36,6 +36,8 @@ const TaskBoard: React.FC<TaskBoardProps> = ({
     const [formAssignee, setFormAssignee] = useState('');
     const [formDate, setFormDate] = useState('');
     const [formStatus, setFormStatus] = useState<TaskStatus>('Todo');
+    const [formProgress, setFormProgress] = useState('');
+    const [commentInput, setCommentInput] = useState('');
 
     const visibleTasks = useMemo(() => {
         let filtered = tasks;
@@ -59,6 +61,7 @@ const TaskBoard: React.FC<TaskBoardProps> = ({
         setFormAssignee('');
         setFormDate('');
         setFormStatus('Todo');
+        setFormProgress('');
         setEditingTask(null);
         setIsAdding(true);
     };
@@ -69,6 +72,7 @@ const TaskBoard: React.FC<TaskBoardProps> = ({
         setFormAssignee(task.assigneeId);
         setFormDate(task.dueDate);
         setFormStatus(task.status);
+        setFormProgress(task.progress || '');
         setEditingTask(task);
         setIsAdding(true);
     };
@@ -84,7 +88,8 @@ const TaskBoard: React.FC<TaskBoardProps> = ({
                 description: formDesc,
                 assigneeId: formAssignee,
                 dueDate: formDate,
-                status: formStatus
+                status: formStatus,
+                progress: formProgress
             });
         } else {
             const newTask: Task = {
@@ -95,6 +100,8 @@ const TaskBoard: React.FC<TaskBoardProps> = ({
                 assignerId: currentUser.id,
                 status: formStatus,
                 dueDate: formDate,
+                progress: formProgress,
+                comments: [],
                 createdAt: new Date().toISOString()
             };
             onAddTask(newTask);
@@ -192,8 +199,11 @@ const TaskBoard: React.FC<TaskBoardProps> = ({
                                                 <div>
                                                     <h4 className="text-sm font-black text-slate-900 leading-tight mb-2 group-hover:text-blue-600 transition-colors uppercase tracking-tight">{task.title}</h4>
                                                     {task.description && (
-                                                        <p className="text-[11px] text-slate-500 line-clamp-2 font-medium leading-relaxed italic border-l-2 border-slate-100 pl-3">"{task.description}"</p>
-                                                    )}
+                                    <p className="text-[11px] text-slate-500 line-clamp-2 font-medium leading-relaxed italic border-l-2 border-slate-100 pl-3">"{task.description}"</p>
+                                )}
+                                {task.progress && (
+                                    <p className="mt-2 text-[11px] font-black text-blue-600 uppercase tracking-tight">Progress: {task.progress}</p>
+                                )}
                                                 </div>
                                             </div>
 
@@ -219,6 +229,54 @@ const TaskBoard: React.FC<TaskBoardProps> = ({
                                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7" /></svg>
                                                         </div>
                                                     </div>
+                                                </div>
+                                                {/* Comments */}
+                                                <div className="mt-4 space-y-2 bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">Progress Comments</span>
+                                                        <span className="text-[10px] font-bold text-slate-400">{task.comments?.length || 0}</span>
+                                                    </div>
+                                                    <div className="space-y-3 max-h-40 overflow-y-auto pr-1">
+                                                        {(task.comments || []).map(c => {
+                                                            const author = users.find(u => u.id === c.authorId);
+                                                            return (
+                                                                <div key={c.id} className="bg-white rounded-xl border border-slate-100 px-3 py-2 shadow-sm">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-[11px] font-black text-slate-700">{author?.name || 'Unknown'}</span>
+                                                                        <span className="text-[10px] text-slate-400 font-bold">{new Date(c.createdAt).toLocaleString()}</span>
+                                                                    </div>
+                                                                    <p className="text-[11px] text-slate-600 mt-1">{c.message}</p>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        {(task.comments || []).length === 0 && (
+                                                            <p className="text-[11px] text-slate-400 italic">No comments yet.</p>
+                                                        )}
+                                                    </div>
+                                                    <form
+                                                        onSubmit={e => {
+                                                            e.preventDefault();
+                                                            if (!commentInput.trim()) return;
+                                                            const comment: TaskComment = {
+                                                                id: Math.random().toString(36).substr(2, 9),
+                                                                authorId: currentUser.id,
+                                                                message: commentInput.trim(),
+                                                                createdAt: new Date().toISOString()
+                                                            };
+                                                            const nextComments = [...(task.comments || []), comment];
+                                                            onUpdateTask({ ...task, comments: nextComments });
+                                                            setCommentInput('');
+                                                        }}
+                                                        className="flex gap-2 mt-2"
+                                                    >
+                                                        <input
+                                                            value={commentInput}
+                                                            onChange={e => setCommentInput(e.target.value)}
+                                                            placeholder="Add update..."
+                                                            className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-[11px] font-bold text-slate-700 outline-none focus:border-blue-400"
+                                                        />
+                                                        <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow hover:bg-blue-500">Post</button>
+                                                    </form>
                                                 </div>
                                             </div>
                                         </div>
@@ -278,6 +336,16 @@ const TaskBoard: React.FC<TaskBoardProps> = ({
                                         className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 text-xs"
                                     />
                                 </div>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Progress</label>
+                                <input
+                                    type="text"
+                                    value={formProgress}
+                                    onChange={e => setFormProgress(e.target.value)}
+                                    className="w-full px-5 py-3 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 text-sm"
+                                    placeholder="e.g., 50% done, waiting on client..."
+                                />
                             </div>
                             {editingTask && (
                                 <div className="space-y-1">

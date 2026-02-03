@@ -77,6 +77,20 @@ create table if not exists ess_profiles (
   emergency_contact_relation text not null
 );
 
+-- Tasks (NEW)
+create table if not exists tasks (
+  id text primary key,
+  title text not null,
+  description text,
+  assignee_id text not null,
+  assigner_id text not null,
+  status text not null,
+  due_date text,
+  progress text,
+  comments jsonb,
+  created_at text not null
+);
+
 create table if not exists checklists (
   user_id text primary key,
   type text not null,
@@ -92,6 +106,7 @@ Enable realtime on these tables:
 - `wfh_requests`
 - `ess_profiles`
 - `checklists`
+- `tasks`
 
 ## RLS
 For quick testing, you can disable RLS or add policies that allow read/write for anon. Lock this down before production.

@@ -29,7 +29,9 @@ import {
   updateCredentialsByEmployeeId,
   loadTasks,
   saveTasks,
-  fetchTasksRemote
+  fetchTasksRemote,
+  fetchNotificationsRemote,
+  saveNotifications
 } from './utils/storage';
 import {
   adminUpsertAttendanceRecord,
@@ -50,7 +52,7 @@ import EmployeeDashboard from './components/EmployeeDashboard';
 
 const SAVED_SESSION_KEY = 'bytechsol_saved_session';
 const SAVED_LOGIN_KEY = 'bytechsol_saved_login';
-const NOTIFICATION_STORAGE_KEY = 'bytechsol_notifications';
+const NOTIFICATION_STORAGE_KEY = 'bytechsol_notifications'; // kept for migration; source of truth now Supabase
 const ATTENDANCE_STORAGE_KEY = 'bytechsol_attendance';
 const CACHE_VERSION_KEY = 'bytechsol_cache_version';
 
@@ -555,19 +557,24 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const raw = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw) as AppNotification[];
-      if (Array.isArray(parsed)) {
-        setNotifications(parsed);
-      }
-    } catch {
-      localStorage.removeItem(NOTIFICATION_STORAGE_KEY);
-    }
+    // hydrate from Supabase (fallback to local)
+    fetchNotificationsRemote()
+      .then(setNotifications)
+      .catch(() => {
+        const raw = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
+        if (!raw) return;
+        try {
+          const parsed = JSON.parse(raw) as AppNotification[];
+          if (Array.isArray(parsed)) setNotifications(parsed);
+        } catch {
+          localStorage.removeItem(NOTIFICATION_STORAGE_KEY);
+        }
+      });
   }, []);
 
   useEffect(() => {
+    // persist to Supabase (and local as cache)
+    saveNotifications(notifications).catch(console.error);
     localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(notifications));
   }, [notifications]);
 

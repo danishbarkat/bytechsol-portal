@@ -44,7 +44,7 @@ import {
   adminUpsertUser,
   adminDeleteUser
 } from './utils/adminApi';
-import { isSupabaseConfigured } from './utils/supabase';
+import { isSupabaseConfigured, supabase } from './utils/supabase';
 import { addDaysToDateString, buildZonedISOString, getLocalDateString, getShiftAdjustedMinutes, getShiftDateString, getWeekdayLabel, getLocalTimeMinutes, getZonedNowISOString } from './utils/dates';
 import Layout from './components/Layout';
 import AdminDashboard from './components/AdminDashboard';
@@ -511,13 +511,14 @@ const App: React.FC = () => {
   useEffect(() => {
     let active = true;
     const init = async () => {
-      const [recordsData, leavesData, essData, checklistData, usersData, wfhData] = await Promise.all([
+      const [recordsData, leavesData, essData, checklistData, usersData, wfhData, tasksData] = await Promise.all([
         loadRecords(),
         loadLeaves(),
         loadESSProfiles(),
         loadChecklists(),
         loadUsers(),
-        loadWfhRequests()
+        loadWfhRequests(),
+        loadTasks()
       ]);
       if (!active) return;
       const { normalized, changed } = normalizeOvertimeRecords(recordsData, usersData);
@@ -528,7 +529,10 @@ const App: React.FC = () => {
       setLeaves(leavesData);
       setEssProfiles(essData);
       setChecklists(checklistData);
+      setEssProfiles(essData);
+      setChecklists(checklistData);
       setWfhRequests(wfhData);
+      setTasks(tasksData);
 
       const legacyEmployeeIds = new Set(['BS-ZACE002', 'BS-SAHR003', 'BS-JODE004', 'BS-JADE005']);
       const hasLegacyUsers = usersData.some(u => legacyEmployeeIds.has(u.employeeId));
@@ -753,6 +757,12 @@ const App: React.FC = () => {
       if (active) setChecklists(data);
     };
     const refreshTasks = async () => {
+      // Guard against race conditions where user is present locally but session isn't restored yet
+      if (user && isSupabaseConfigured && supabase) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+      }
+
       if (user?.role === Role.CEO || user?.role === Role.SUPERADMIN || (user?.employeeId && APP_CONFIG.TASK_MANAGERS_EMPLOYEE_IDS.includes(normalizeEmployeeId(user.employeeId)))) {
         const data = await fetchTasksRemote();
         if (active) setTasks(data);

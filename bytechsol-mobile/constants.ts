@@ -1,0 +1,37 @@
+
+import { Role, User } from './types';
+
+export const APP_CONFIG = {
+  CACHE_VERSION: "2026-01-28-2",
+  OFFICE_WIFI_NAME: "Office_Main_5G",
+  SHIFT_START: "20:00",
+  SHIFT_END: "05:00",
+  GRACE_PERIOD_MINS: 30,
+  CHECKOUT_EARLY_RELAXATION_MINS: 30,
+  AUTO_CHECKOUT_ENABLED: true,
+  AUTO_CHECKOUT_EXEMPT_ROLES: [],
+  CHECKIN_OVERRIDE_EMPLOYEE_IDS: ["MUUR008"],
+  OFFICE_ALLOWED_PUBLIC_IPS: ["202.47.33.64", "72.255.37.120"],
+  REMOTE_LOGIN_EMPLOYEE_IDS: ["NOUL014", "MEHA015", "WAUD013", "NASI017"],
+  WORKING_DAYS: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+  ABSENCE_ALLOWANCE_PER_MONTH: 1,
+  FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS: ["DABA010"],
+  FRIDAY_LATE_EXEMPT_CUTOFF: "01:00",
+  PROFILE_IMAGE_BUCKET: "avatars",
+  PROFILE_IMAGE_MAX_BYTES: 3 * 1024 * 1024,
+  CFO_EMPLOYEE_ID: "BS-BIKH016",
+  ATTENDANCE_EXEMPT_EMPLOYEE_IDS: ["BS-BIKH016"],
+  ATTENDANCE_EXEMPT_ROLES: ["SUPERADMIN", "CEO"],
+  LATE_EXEMPT_EMPLOYEE_IDS: ["DABA010"],
+  LATE_EXEMPT_CUTOFF: "21:00",
+  EARLY_CHECKOUT_OVERRIDES: [
+    { employeeId: "DABA010", cutoff: "02:00" }
+  ],
+  TASK_MANAGERS_EMPLOYEE_IDS: ["BS-BIKH016", "BS-DABA010"]
+};
+
+export const MOCK_USERS: User[] = [
+  { id: '1', name: 'Super Admin', email: 'super@bytechsol.com', password: 'admin123', role: Role.SUPERADMIN, employeeId: 'BS-SUAD001', workMode: 'Onsite', salaryHidden: false },
+  { id: '2', name: 'Yasir Bajwa', email: 'yasir@bytechsol.com', password: 'yasir123', role: Role.CEO, employeeId: 'BS-YABA002', workMode: 'Onsite', salaryHidden: false },
+  { id: '3', name: 'Tami HR', email: 'tami@bytechsol.com', password: 'tami123', role: Role.HR, employeeId: 'BS-TAHR003', workMode: 'Onsite', salaryHidden: false }
+];

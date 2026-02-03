@@ -747,7 +747,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const shiftEndAdjusted = isOvernightShift ? shiftEndMinutes + 24 * 60 : shiftEndMinutes;
   const shiftDurationMinutes = Math.max(1, shiftEndAdjusted - shiftStartMinutes);
   const shiftHours = shiftDurationMinutes / 60;
-  const earlyCheckoutCutoff = shiftEndAdjusted - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
+  const defaultEarlyCheckoutCutoff = shiftEndAdjusted - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
+  const earlyCheckoutOverrides = ((APP_CONFIG as any).EARLY_CHECKOUT_OVERRIDES || []) as { employeeId: string; cutoff: string }[];
+
+  const toAdjustedMinutes = (time: string) => {
+    const [hour, minute] = time.split(':').map(Number);
+    const base = (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0);
+    return isOvernightShift && base < shiftStartMinutes ? base + 24 * 60 : base;
+  };
+
+  const getRecordEmployeeId = (record: AttendanceRecord): string => {
+    if (record.userId) {
+      const matchingUser = users.find(u => u.id === record.userId);
+      if (matchingUser?.employeeId) return normalizeEmployeeId(matchingUser.employeeId);
+      return normalizeEmployeeId(String(record.userId));
+    }
+    if (record.userName) {
+      const matchingByName = users.find(u => (u.name || '').trim().toLowerCase() === record.userName.trim().toLowerCase());
+      if (matchingByName?.employeeId) return normalizeEmployeeId(matchingByName.employeeId);
+    }
+    return '';
+  };
+
+  const getEarlyCheckoutCutoffMinutes = (record: AttendanceRecord) => {
+    const recordEmployeeId = getRecordEmployeeId(record);
+    const override = earlyCheckoutOverrides.find(({ employeeId }) =>
+      recordEmployeeId && normalizeEmployeeId(employeeId) === recordEmployeeId
+    );
+    if (override?.cutoff) {
+      return toAdjustedMinutes(override.cutoff);
+    }
+    return defaultEarlyCheckoutCutoff;
+  };
   const docEarningsTotal = (Number(docForm.basicPay) || 0)
     + (Number(docForm.homeAllowance) || 0)
     + (Number(docForm.travelAllowance) || 0)
@@ -785,6 +816,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const getCheckoutStatus = (record: AttendanceRecord) => {
     if (!record.checkOut) return 'Active';
+    const earlyCheckoutCutoff = getEarlyCheckoutCutoffMinutes(record);
     const checkOutDate = new Date(record.checkOut);
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
     const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
@@ -817,6 +849,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const getEarlyCheckoutMinutesForRecord = (record: AttendanceRecord) => {
     if (!record.checkOut) return 0;
+    const earlyCheckoutCutoff = getEarlyCheckoutCutoffMinutes(record);
     const checkOutDate = new Date(record.checkOut);
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
     const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes

@@ -699,7 +699,40 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     APP_CONFIG.SHIFT_START,
     APP_CONFIG.SHIFT_END
   );
-  const earlyCheckoutCutoff = shiftEndMinutes - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
+  const defaultEarlyCheckoutCutoff = shiftEndMinutes - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
+  const earlyCheckoutOverrides = ((APP_CONFIG as any).EARLY_CHECKOUT_OVERRIDES || []) as { employeeId: string; cutoff: string }[];
+
+  const resolveRecordEmployeeId = (record?: AttendanceRecord): string => {
+    if (!record) return normalizedEmployeeId;
+    if (record.userId === user.id && normalizedEmployeeId) return normalizedEmployeeId;
+    if (record.userId) {
+      const matchingUser = users.find(u => u.id === record.userId);
+      if (matchingUser?.employeeId) return normalizeEmployeeId(matchingUser.employeeId);
+      return normalizeEmployeeId(String(record.userId));
+    }
+    if (record.userName) {
+      const matchingByName = users.find(u => u.name && normalizeName(u.name) === normalizeName(record.userName));
+      if (matchingByName?.employeeId) return normalizeEmployeeId(matchingByName.employeeId);
+    }
+    return normalizedEmployeeId;
+  };
+
+  const toAdjustedMinutes = (time: string) => {
+    const [hour, minute] = time.split(':').map(Number);
+    const base = (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0);
+    return isOvernightShift && base < shiftStartMinutes ? base + 24 * 60 : base;
+  };
+
+  const getEarlyCheckoutCutoffMinutes = (record?: AttendanceRecord) => {
+    const recordEmployeeId = resolveRecordEmployeeId(record);
+    const override = earlyCheckoutOverrides.find(({ employeeId }) =>
+      recordEmployeeId && normalizeEmployeeId(employeeId) === recordEmployeeId
+    );
+    if (override?.cutoff) {
+      return toAdjustedMinutes(override.cutoff);
+    }
+    return defaultEarlyCheckoutCutoff;
+  };
 
   const getOvertimeMinutesForRecord = (record: AttendanceRecord) => {
     if (!record.checkIn || !record.checkOut) {
@@ -723,6 +756,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
 
   const getEarlyCheckoutMinutesForRecord = (record: AttendanceRecord) => {
     if (!record.checkOut) return 0;
+    const earlyCheckoutCutoff = getEarlyCheckoutCutoffMinutes(record);
     const checkOutDate = new Date(record.checkOut);
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
     const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
@@ -958,6 +992,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
 
   const getCheckoutStatus = (record: AttendanceRecord) => {
     if (!isValidDateValue(record.checkOut)) return 'Active';
+    const earlyCheckoutCutoff = getEarlyCheckoutCutoffMinutes(record);
     const checkOutDate = new Date(record.checkOut);
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
     const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes

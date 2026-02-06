@@ -1084,12 +1084,12 @@ const App: React.FC = () => {
     const isOvernight = endTotal <= startTotal;
     const [cutoffHour, cutoffMinute] = APP_CONFIG.FRIDAY_LATE_EXEMPT_CUTOFF.split(':').map(Number);
     const cutoffBase = cutoffHour * 60 + cutoffMinute;
-    const cutoffAdjusted = isOvernight && cutoffBase < endTotal ? cutoffBase + 24 * 60 : cutoffBase;
+    const cutoffAdjusted = isOvernight && cutoffBase < startTotal ? cutoffBase + 24 * 60 : cutoffBase;
     const generalExemptIds = (APP_CONFIG as any).LATE_EXEMPT_EMPLOYEE_IDS || [];
     const isGeneralExempt = Boolean(userId) && generalExemptIds.includes(userId);
     const [genCutoffHour, genCutoffMinute] = ((APP_CONFIG as any).LATE_EXEMPT_CUTOFF || "20:00").split(':').map(Number);
     const genCutoffBase = genCutoffHour * 60 + genCutoffMinute;
-    const genCutoffAdjusted = isOvernight && genCutoffBase < endTotal ? genCutoffBase + 24 * 60 : genCutoffBase;
+    const genCutoffAdjusted = isOvernight && genCutoffBase < startTotal ? genCutoffBase + 24 * 60 : genCutoffBase;
 
     if (isGeneralExempt && currentMinutes <= genCutoffAdjusted) {
       return 'On-Time';

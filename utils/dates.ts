@@ -50,10 +50,15 @@ export const getShiftAdjustedMinutes = (
   const startMinutes = startHour * 60 + startMinute;
   const endMinutes = endHour * 60 + endMinute;
   const isOvernight = endMinutes <= startMinutes;
-  const adjustedCurrent = isOvernight && currentMinutes < endMinutes
-    ? currentMinutes + 24 * 60
-    : currentMinutes;
-  return { currentMinutes: adjustedCurrent, startMinutes };
+  if (!isOvernight) {
+    return { currentMinutes, startMinutes };
+  }
+  const currentRaw = currentMinutes;
+  const currentAdjusted = currentMinutes + 24 * 60;
+  const chosen = Math.abs(currentAdjusted - startMinutes) < Math.abs(currentRaw - startMinutes)
+    ? currentAdjusted
+    : currentRaw;
+  return { currentMinutes: chosen, startMinutes };
 };
 
 export const addDaysToDateString = (dateStr: string, days: number): string => {

@@ -1121,6 +1121,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       shift.end
     );
     const shiftDate = getShiftDateString(checkInDate, shift.start, shift.end);
+    const weekday = getWeekdayLabel(shiftDate);
+    const isNoLateWindow = worker?.employeeId && normalizeEmployeeId(worker.employeeId) === 'BS-DABA010'
+      && ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
+    if (isNoLateWindow) return 'On-Time';
     const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
     const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));
     const workerId = worker?.employeeId ? normalizeEmployeeId(worker.employeeId) : '';

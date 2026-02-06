@@ -1080,6 +1080,10 @@ const App: React.FC = () => {
       shift.end
     );
     const shiftDate = getShiftDateString(checkInTime, shift.start, shift.end);
+    const weekday = getWeekdayLabel(shiftDate);
+    const isNoLateWindow = user?.employeeId && normalizeEmployeeId(user.employeeId) === 'BS-DABA010'
+      && ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
+    if (isNoLateWindow) return 'On-Time';
     const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
     const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));
     const userId = user?.employeeId ? normalizeEmployeeId(user.employeeId) : '';

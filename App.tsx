@@ -111,7 +111,8 @@ const getShiftForEmployee = (employeeId?: string) => {
   const override = (APP_CONFIG as any).SHIFT_OVERRIDES?.[normalized];
   return {
     start: override?.start || APP_CONFIG.SHIFT_START,
-    end: override?.end || APP_CONFIG.SHIFT_END
+    end: override?.end || APP_CONFIG.SHIFT_END,
+    overtimeEnd: override?.overtimeEnd || override?.end || APP_CONFIG.SHIFT_END
   };
 };
 
@@ -119,12 +120,14 @@ const computeOvertimeHours = (
   checkInIso: string,
   checkOutIso: string,
   shiftStart = APP_CONFIG.SHIFT_START,
-  shiftEnd = APP_CONFIG.SHIFT_END
+  shiftEnd = APP_CONFIG.SHIFT_END,
+  overtimeEnd?: string
 ): number => {
   const checkInTime = new Date(checkInIso);
   const checkOutTime = new Date(checkOutIso);
   const [startHour, startMinute] = shiftStart.split(':').map(Number);
-  const [endHour, endMinute] = shiftEnd.split(':').map(Number);
+  const overtimeEndValue = overtimeEnd || shiftEnd;
+  const [endHour, endMinute] = overtimeEndValue.split(':').map(Number);
   const startMinutes = startHour * 60 + startMinute;
   const endMinutes = endHour * 60 + endMinute;
   const isOvernight = endMinutes <= startMinutes;
@@ -213,11 +216,13 @@ const autoCheckoutStaleRecords = (list: AttendanceRecord[], userList: User[]) =>
     const isSuperseded = latestOpen && latestOpen.id !== record.id;
     const isStale = recordShiftDate < currentShiftDate;
     if (!isSuperseded && !isStale) return record;
+    const user = userList.find(u => matchesUserRecord(record, u as User));
+    const shift = getShiftForEmployee(user?.employeeId);
     const checkOutIso = getShiftEndISOString(recordShiftDate);
     if (!checkOutIso) return record;
     if (Date.now() < new Date(checkOutIso).getTime()) return record;
     const totalHours = computeTotalHours(record.checkIn, checkOutIso);
-    const overtimeHours = computeOvertimeHours(record.checkIn, checkOutIso);
+    const overtimeHours = computeOvertimeHours(record.checkIn, checkOutIso, shift.start, shift.end, shift.overtimeEnd);
     changed = true;
     return {
       ...record,
@@ -234,7 +239,9 @@ const normalizeOvertimeRecords = (list: AttendanceRecord[], userList: User[] = [
   let changed = autoChanged;
   const normalized = autoNormalized.map(record => {
     if (!record.checkIn || !record.checkOut) return record;
-    const computedOvertime = computeOvertimeHours(record.checkIn, record.checkOut);
+    const worker = userList.find(u => u.id === record.userId);
+    const shift = getShiftForEmployee(worker?.employeeId);
+    const computedOvertime = computeOvertimeHours(record.checkIn, record.checkOut, shift.start, shift.end, shift.overtimeEnd);
     const nextOvertime = computedOvertime > 0 ? computedOvertime : undefined;
     const currentOvertime = Number.isFinite(record.overtimeHours) ? record.overtimeHours : 0;
     const computedTotal = computeTotalHours(record.checkIn, record.checkOut);
@@ -1139,7 +1146,7 @@ const App: React.FC = () => {
     const checkOutIso = getZonedNowISOString();
     const checkInTime = new Date(activeRecord.checkIn);
     const diff = (new Date(checkOutIso).getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
-    const overtimeHours = computeOvertimeHours(activeRecord.checkIn, checkOutIso, shift.start, shift.end);
+    const overtimeHours = computeOvertimeHours(activeRecord.checkIn, checkOutIso, shift.start, shift.end, shift.overtimeEnd);
     const updated = records.map(r =>
       r.id === activeRecord.id
         ? {

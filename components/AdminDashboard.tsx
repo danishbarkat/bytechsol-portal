@@ -79,7 +79,8 @@ const getShiftForEmployee = (employeeId?: string) => {
   const override = (APP_CONFIG as any).SHIFT_OVERRIDES?.[normalized];
   return {
     start: override?.start || APP_CONFIG.SHIFT_START,
-    end: override?.end || APP_CONFIG.SHIFT_END
+    end: override?.end || APP_CONFIG.SHIFT_END,
+    overtimeEnd: override?.overtimeEnd || override?.end || APP_CONFIG.SHIFT_END
   };
 };
 
@@ -839,7 +840,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const getCheckoutStatus = (record: AttendanceRecord) => {
     if (!record.checkOut) return 'Active';
-    const { isOvernightShift, shiftStartMinutes, shiftEndAdjusted } = getShiftMetaForRecord(record);
+    const { shift, isOvernightShift, shiftStartMinutes } = getShiftMetaForRecord(record);
+    const overtimeEndValue = (shift as any).overtimeEnd || shift.end;
+    const [overEndHour, overEndMinute] = overtimeEndValue.split(':').map(Number);
+    const overtimeEndMinutesBase = (Number.isFinite(overEndHour) ? overEndHour : 0) * 60 + (Number.isFinite(overEndMinute) ? overEndMinute : 0);
+    const overtimeEndAdjusted = (isOvernightShift && overtimeEndMinutesBase < shiftStartMinutes)
+      ? overtimeEndMinutesBase + 24 * 60
+      : overtimeEndMinutesBase;
     const earlyCheckoutCutoff = getEarlyCheckoutCutoffMinutes(record);
     const checkOutDate = new Date(record.checkOut);
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
@@ -847,12 +854,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       ? checkOutRawMinutes + 24 * 60
       : checkOutRawMinutes;
     if (checkOutMinutes < earlyCheckoutCutoff) return 'Early';
-    if (checkOutMinutes > shiftEndAdjusted) return 'Overtime';
+    if (checkOutMinutes > overtimeEndAdjusted) return 'Overtime';
     return 'On-Time';
   };
 
   const getOvertimeMinutesForRecord = (record: AttendanceRecord) => {
-    const { shift, isOvernightShift, shiftStartMinutes, shiftEndAdjusted } = getShiftMetaForRecord(record);
+    const { shift, isOvernightShift, shiftStartMinutes } = getShiftMetaForRecord(record);
+    const overtimeEndValue = (shift as any).overtimeEnd || shift.end;
+    const [overEndHour, overEndMinute] = overtimeEndValue.split(':').map(Number);
+    const overtimeEndMinutesBase = (Number.isFinite(overEndHour) ? overEndHour : 0) * 60 + (Number.isFinite(overEndMinute) ? overEndMinute : 0);
+    const overtimeEndAdjusted = (isOvernightShift && overtimeEndMinutesBase < shiftStartMinutes)
+      ? overtimeEndMinutesBase + 24 * 60
+      : overtimeEndMinutesBase;
     if (!record.checkIn || !record.checkOut) {
       return Number.isFinite(record.overtimeHours) ? (record.overtimeHours || 0) * 60 : 0;
     }
@@ -868,7 +881,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       ? checkOutRawMinutes + 24 * 60
       : checkOutRawMinutes;
     const earlyMinutes = Math.max(0, shiftStartMinutes - checkInMinutes);
-    const lateMinutes = Math.max(0, checkOutMinutes - shiftEndAdjusted);
+    const lateMinutes = Math.max(0, checkOutMinutes - overtimeEndAdjusted);
     return earlyMinutes + lateMinutes;
   };
 

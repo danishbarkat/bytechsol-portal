@@ -18,7 +18,7 @@ export const APP_CONFIG = {
   FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS: ["DABA010"],
   FRIDAY_LATE_EXEMPT_CUTOFF: "01:00",
   SHIFT_OVERRIDES: {
-    'BS-DABA010': { start: '21:00', end: '02:00' }
+    'BS-DABA010': { start: '21:00', end: '02:00', overtimeEnd: '05:00' }
   },
   PROFILE_IMAGE_BUCKET: "avatars",
   PROFILE_IMAGE_MAX_BYTES: 3 * 1024 * 1024,

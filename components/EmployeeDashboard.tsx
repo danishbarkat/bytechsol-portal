@@ -42,7 +42,8 @@ const getShiftForEmployee = (employeeId?: string) => {
   const override = (APP_CONFIG as any).SHIFT_OVERRIDES?.[normalized];
   return {
     start: override?.start || APP_CONFIG.SHIFT_START,
-    end: override?.end || APP_CONFIG.SHIFT_END
+    end: override?.end || APP_CONFIG.SHIFT_END,
+    overtimeEnd: override?.overtimeEnd || override?.end || APP_CONFIG.SHIFT_END
   };
 };
 
@@ -709,6 +710,12 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     shiftStart,
     shiftEnd
   );
+  const overtimeEndValue = (getShiftForEmployee(user.employeeId).overtimeEnd) || shiftEnd;
+  const [overtimeEndHour, overtimeEndMinute] = overtimeEndValue.split(':').map(Number);
+  const overtimeEndMinutesBase = (Number.isFinite(overtimeEndHour) ? overtimeEndHour : 0) * 60 + (Number.isFinite(overtimeEndMinute) ? overtimeEndMinute : 0);
+  const overtimeEndMinutes = (isOvernightShift && overtimeEndMinutesBase < shiftStartMinutes)
+    ? overtimeEndMinutesBase + 24 * 60
+    : overtimeEndMinutesBase;
   const defaultEarlyCheckoutCutoff = shiftEndMinutes - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
   const earlyCheckoutOverrides = ((APP_CONFIG as any).EARLY_CHECKOUT_OVERRIDES || []) as { employeeId: string; cutoff: string }[];
 
@@ -760,7 +767,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       ? checkOutRawMinutes + 24 * 60
       : checkOutRawMinutes;
     const earlyMinutes = Math.max(0, shiftStartMinutes - checkInMinutes);
-    const lateMinutes = Math.max(0, checkOutMinutes - shiftEndMinutes);
+    const lateMinutes = Math.max(0, checkOutMinutes - overtimeEndMinutes);
     return earlyMinutes + lateMinutes;
   };
 
@@ -1009,7 +1016,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       ? checkOutRawMinutes + 24 * 60
       : checkOutRawMinutes;
     if (checkOutMinutes < earlyCheckoutCutoff) return 'Early';
-    if (checkOutMinutes > shiftEndMinutes) return 'Overtime';
+    if (checkOutMinutes > overtimeEndMinutes) return 'Overtime';
     return 'On-Time';
   };
 

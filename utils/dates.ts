@@ -50,7 +50,7 @@ export const getShiftAdjustedMinutes = (
   const startMinutes = startHour * 60 + startMinute;
   const endMinutes = endHour * 60 + endMinute;
   const isOvernight = endMinutes <= startMinutes;
-  const adjustedCurrent = isOvernight && currentMinutes < startMinutes
+  const adjustedCurrent = isOvernight && currentMinutes < endMinutes
     ? currentMinutes + 24 * 60
     : currentMinutes;
   return { currentMinutes: adjustedCurrent, startMinutes };

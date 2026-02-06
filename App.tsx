@@ -116,6 +116,14 @@ const getShiftForEmployee = (employeeId?: string) => {
   };
 };
 
+const isNoLateWindow = (employeeId?: string, dateStr?: string) => {
+  if (!employeeId || !dateStr) return false;
+  const normalized = normalizeEmployeeId(employeeId);
+  if (normalized !== 'BS-DABA010') return false;
+  const weekday = getWeekdayLabel(dateStr);
+  return ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
+};
+
 const computeOvertimeHours = (
   checkInIso: string,
   checkOutIso: string,
@@ -248,9 +256,13 @@ const normalizeOvertimeRecords = (list: AttendanceRecord[], userList: User[] = [
     const currentTotal = Number.isFinite(record.totalHours) ? record.totalHours : 0;
     const needsOvertime = Math.abs((nextOvertime ?? 0) - currentOvertime) > 0.01;
     const needsTotal = Math.abs(computedTotal - currentTotal) > 0.01;
-    if (needsOvertime || needsTotal) {
+    const nextStatus = isNoLateWindow(user?.employeeId, record.date || getShiftDateString(new Date(record.checkIn), shift.start, shift.end))
+      ? 'On-Time'
+      : record.status;
+    const needsStatus = nextStatus !== record.status && nextStatus !== undefined;
+    if (needsOvertime || needsTotal || needsStatus) {
       changed = true;
-      return { ...record, overtimeHours: nextOvertime, totalHours: computedTotal };
+      return { ...record, overtimeHours: nextOvertime, totalHours: computedTotal, status: nextStatus ?? record.status };
     }
     return record;
   });
@@ -1081,8 +1093,7 @@ const App: React.FC = () => {
     );
     const shiftDate = getShiftDateString(checkInTime, shift.start, shift.end);
     const weekday = getWeekdayLabel(shiftDate);
-    const isNoLateWindow = user?.employeeId && normalizeEmployeeId(user.employeeId) === 'BS-DABA010'
-      && ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
+    const isNoLateWindow = isNoLateWindow(user?.employeeId, shiftDate);
     if (isNoLateWindow) return 'On-Time';
     const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
     const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));

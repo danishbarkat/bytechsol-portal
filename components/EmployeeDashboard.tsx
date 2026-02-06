@@ -990,8 +990,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     );
     const shiftDate = getShiftDateString(checkInDate, shiftStart, shiftEnd);
     const weekday = getWeekdayLabel(shiftDate);
-    const isNoLateWindow = user.employeeId && normalizeEmployeeId(user.employeeId) === 'BS-DABA010'
-      && ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
+    const isNoLateWindow =
+      user.employeeId &&
+      normalizeEmployeeId(user.employeeId) === 'BS-DABA010' &&
+      ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
     if (isNoLateWindow) return 'On-Time';
     const relaxation = APP_CONFIG.GRACE_PERIOD_MINS;
     if (currentMinutes < startMinutes) return 'Early';

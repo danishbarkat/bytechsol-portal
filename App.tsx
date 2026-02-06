@@ -106,19 +106,33 @@ const computeTotalHours = (checkInIso: string, checkOutIso: string): number => {
   return Math.max(0, (adjustedCheckOut - checkInMinutes) / 60);
 };
 
-const computeOvertimeHours = (checkInIso: string, checkOutIso: string): number => {
+const getShiftForEmployee = (employeeId?: string) => {
+  const normalized = normalizeEmployeeId(employeeId || '');
+  const override = (APP_CONFIG as any).SHIFT_OVERRIDES?.[normalized];
+  return {
+    start: override?.start || APP_CONFIG.SHIFT_START,
+    end: override?.end || APP_CONFIG.SHIFT_END
+  };
+};
+
+const computeOvertimeHours = (
+  checkInIso: string,
+  checkOutIso: string,
+  shiftStart = APP_CONFIG.SHIFT_START,
+  shiftEnd = APP_CONFIG.SHIFT_END
+): number => {
   const checkInTime = new Date(checkInIso);
   const checkOutTime = new Date(checkOutIso);
-  const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
-  const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+  const [startHour, startMinute] = shiftStart.split(':').map(Number);
+  const [endHour, endMinute] = shiftEnd.split(':').map(Number);
   const startMinutes = startHour * 60 + startMinute;
   const endMinutes = endHour * 60 + endMinute;
   const isOvernight = endMinutes <= startMinutes;
   const adjustedEnd = isOvernight ? endMinutes + 24 * 60 : endMinutes;
   const checkInAdjusted = getShiftAdjustedMinutes(
     checkInTime,
-    APP_CONFIG.SHIFT_START,
-    APP_CONFIG.SHIFT_END
+    shiftStart,
+    shiftEnd
   ).currentMinutes;
   const checkOutMinutes = getLocalTimeMinutes(checkOutTime);
   const adjustedCheckOut = isOvernight && checkOutMinutes < startMinutes
@@ -1044,19 +1058,20 @@ const App: React.FC = () => {
   };
 
   const calculateStatus = (checkInTime: Date): CheckInStatus => {
+    const shift = getShiftForEmployee(user?.employeeId);
     if (user?.workMode === 'Remote') return 'On-Time';
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInTime,
-      APP_CONFIG.SHIFT_START,
-      APP_CONFIG.SHIFT_END
+      shift.start,
+      shift.end
     );
-    const shiftDate = getShiftDateString(checkInTime, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    const shiftDate = getShiftDateString(checkInTime, shift.start, shift.end);
     const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
     const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));
     const userId = user?.employeeId ? normalizeEmployeeId(user.employeeId) : '';
     const isExemptUser = Boolean(userId) && exemptIds.includes(userId);
-    const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
-    const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+    const [startHour, startMinute] = shift.start.split(':').map(Number);
+    const [endHour, endMinute] = shift.end.split(':').map(Number);
     const startTotal = startHour * 60 + startMinute;
     const endTotal = endHour * 60 + endMinute;
     const isOvernight = endTotal <= startTotal;
@@ -1085,7 +1100,8 @@ const App: React.FC = () => {
   const handleCheckIn = useCallback(() => {
     if (!user) return;
     const now = new Date();
-    const shiftDate = getShiftDateString(now, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    const shift = getShiftForEmployee(user.employeeId);
+    const shiftDate = getShiftDateString(now, shift.start, shift.end);
     const hasShiftRecord = records.some(r => r.date === shiftDate && matchesUserRecord(r, user));
     if (hasShiftRecord) {
       return;
@@ -1119,10 +1135,11 @@ const App: React.FC = () => {
       .find(r => !r.checkOut && matchesUserRecord(r, user));
     if (!activeRecord) return;
     const now = new Date();
+    const shift = getShiftForEmployee(user.employeeId);
     const checkOutIso = getZonedNowISOString();
     const checkInTime = new Date(activeRecord.checkIn);
     const diff = (new Date(checkOutIso).getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
-    const overtimeHours = computeOvertimeHours(activeRecord.checkIn, checkOutIso);
+    const overtimeHours = computeOvertimeHours(activeRecord.checkIn, checkOutIso, shift.start, shift.end);
     const updated = records.map(r =>
       r.id === activeRecord.id
         ? {

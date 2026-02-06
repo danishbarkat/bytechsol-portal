@@ -37,6 +37,15 @@ const normalizeEmployeeId = (value: string): string => {
   return `BS-${withoutPrefix}`;
 };
 
+const getShiftForEmployee = (employeeId?: string) => {
+  const normalized = employeeId ? normalizeEmployeeId(employeeId) : '';
+  const override = (APP_CONFIG as any).SHIFT_OVERRIDES?.[normalized];
+  return {
+    start: override?.start || APP_CONFIG.SHIFT_START,
+    end: override?.end || APP_CONFIG.SHIFT_END
+  };
+};
+
 const extractStoragePath = (value: string): string | null => {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -167,6 +176,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   onDeleteTask,
   users
 }) => {
+  const { start: shiftStart, end: shiftEnd } = getShiftForEmployee(user.employeeId);
   const [tab, setTab] = useState<'attendance' | 'leaves' | 'profile' | 'checklists' | 'tasks'>('attendance');
   const buildLeaveTemplate = (employee: User) =>
     `Leave Application\n\nReason:\n\nRegards,\n${employee.name}\nID: ${employee.employeeId}`;
@@ -244,7 +254,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const resolveRecordDate = (record: AttendanceRecord) => {
     if (record.date) return record.date;
     if (!record.checkIn) return '';
-    return getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    return getShiftDateString(new Date(record.checkIn), shiftStart, shiftEnd);
   };
 
   const isSameMonth = (dateStr: string, target: Date) => {
@@ -579,7 +589,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const activeRecord = [...records]
     .reverse()
     .find(r => matchesUserRecord(r) && isValidDateValue(r.checkIn) && !isValidDateValue(r.checkOut));
-  const shiftDate = getShiftDateString(currentTime, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+  const shiftDate = getShiftDateString(currentTime, shiftStart, shiftEnd);
   const hasShiftRecord = records.some(r => matchesUserRecord(r) && r.date === shiftDate);
   const shiftLocked = hasShiftRecord && !activeRecord;
   const myLeaves = leaves
@@ -696,8 +706,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     durationHours: shiftHours,
     isOvernight: isOvernightShift
   } = getShiftMetrics(
-    APP_CONFIG.SHIFT_START,
-    APP_CONFIG.SHIFT_END
+    shiftStart,
+    shiftEnd
   );
   const defaultEarlyCheckoutCutoff = shiftEndMinutes - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
   const earlyCheckoutOverrides = ((APP_CONFIG as any).EARLY_CHECKOUT_OVERRIDES || []) as { employeeId: string; cutoff: string }[];
@@ -742,8 +752,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     const checkOutDate = new Date(record.checkOut);
     const checkInMinutes = getShiftAdjustedMinutes(
       checkInDate,
-      APP_CONFIG.SHIFT_START,
-      APP_CONFIG.SHIFT_END
+      shiftStart,
+      shiftEnd
     ).currentMinutes;
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
     const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
@@ -968,8 +978,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     if (Number.isNaN(checkInDate.getTime())) return record.status || 'On-Time';
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInDate,
-      APP_CONFIG.SHIFT_START,
-      APP_CONFIG.SHIFT_END
+      shiftStart,
+      shiftEnd
     );
     const relaxation = APP_CONFIG.GRACE_PERIOD_MINS;
     if (currentMinutes < startMinutes) return 'Early';

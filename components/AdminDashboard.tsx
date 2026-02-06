@@ -74,6 +74,15 @@ const normalizeEmployeeId = (value: string): string => {
   return `BS-${withoutPrefix}`;
 };
 
+const getShiftForEmployee = (employeeId?: string) => {
+  const normalized = employeeId ? normalizeEmployeeId(employeeId) : '';
+  const override = (APP_CONFIG as any).SHIFT_OVERRIDES?.[normalized];
+  return {
+    start: override?.start || APP_CONFIG.SHIFT_START,
+    end: override?.end || APP_CONFIG.SHIFT_END
+  };
+};
+
 const parseDateUtc = (dateStr: string) => {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day));
@@ -565,8 +574,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const attendanceMonthRef = useRef<HTMLInputElement | null>(null);
   const [attendancePage, setAttendancePage] = useState(1);
   const attendancePageSize = 15;
-  const resolveRecordDate = (record: AttendanceRecord) =>
-    record.date || getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+  const resolveRecordDate = (record: AttendanceRecord) => {
+    const worker = users.find(u => u.id === record.userId);
+    const shift = getShiftForEmployee(worker?.employeeId);
+    return record.date || getShiftDateString(new Date(record.checkIn), shift.start, shift.end);
+  };
   const [docForm, setDocForm] = useState<Record<string, string>>(() => {
     const now = new Date();
     const today = getLocalDateString(now);
@@ -739,22 +751,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const documentUsers = salarySlipSelfOnly
     ? [user]
     : sortedVisibleUsers;
-  const [shiftStartHour, shiftStartMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
-  const [shiftEndHour, shiftEndMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
-  const shiftStartMinutes = shiftStartHour * 60 + shiftStartMinute;
-  const shiftEndMinutes = shiftEndHour * 60 + shiftEndMinute;
-  const isOvernightShift = shiftEndMinutes <= shiftStartMinutes;
-  const shiftEndAdjusted = isOvernightShift ? shiftEndMinutes + 24 * 60 : shiftEndMinutes;
-  const shiftDurationMinutes = Math.max(1, shiftEndAdjusted - shiftStartMinutes);
-  const shiftHours = shiftDurationMinutes / 60;
-  const defaultEarlyCheckoutCutoff = shiftEndAdjusted - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
-  const earlyCheckoutOverrides = ((APP_CONFIG as any).EARLY_CHECKOUT_OVERRIDES || []) as { employeeId: string; cutoff: string }[];
-
-  const toAdjustedMinutes = (time: string) => {
-    const [hour, minute] = time.split(':').map(Number);
-    const base = (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0);
-    return isOvernightShift && base < shiftStartMinutes ? base + 24 * 60 : base;
+  const getShiftMetaForEmployee = (employeeId?: string) => {
+    const shift = getShiftForEmployee(employeeId);
+    const [shiftStartHour, shiftStartMinute] = shift.start.split(':').map(Number);
+    const [shiftEndHour, shiftEndMinute] = shift.end.split(':').map(Number);
+    const shiftStartMinutes = shiftStartHour * 60 + shiftStartMinute;
+    const shiftEndMinutes = shiftEndHour * 60 + shiftEndMinute;
+    const isOvernightShift = shiftEndMinutes <= shiftStartMinutes;
+    const shiftEndAdjusted = isOvernightShift ? shiftEndMinutes + 24 * 60 : shiftEndMinutes;
+    const shiftDurationMinutes = Math.max(1, shiftEndAdjusted - shiftStartMinutes);
+    const shiftHours = shiftDurationMinutes / 60;
+    return { shift, shiftStartMinutes, shiftEndMinutes, shiftEndAdjusted, isOvernightShift, shiftHours };
   };
+
+  const getShiftMetaForRecord = (record: AttendanceRecord) => {
+    const worker = users.find(u => u.id === record.userId);
+    return getShiftMetaForEmployee(worker?.employeeId);
+  };
+
+  const shiftHours = getShiftMetaForEmployee(user.employeeId).shiftHours;
+  const earlyCheckoutOverrides = ((APP_CONFIG as any).EARLY_CHECKOUT_OVERRIDES || []) as { employeeId: string; cutoff: string }[];
 
   const getRecordEmployeeId = (record: AttendanceRecord): string => {
     if (record.userId) {
@@ -770,6 +786,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const getEarlyCheckoutCutoffMinutes = (record: AttendanceRecord) => {
+    const { shiftStartMinutes, shiftEndAdjusted, isOvernightShift } = getShiftMetaForRecord(record);
+    const toAdjustedMinutes = (time: string) => {
+      const [hour, minute] = time.split(':').map(Number);
+      const base = (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0);
+      return isOvernightShift && base < shiftStartMinutes ? base + 24 * 60 : base;
+    };
+    const defaultEarlyCheckoutCutoff = shiftEndAdjusted - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
     const recordEmployeeId = getRecordEmployeeId(record);
     const override = earlyCheckoutOverrides.find(({ employeeId }) =>
       recordEmployeeId && normalizeEmployeeId(employeeId) === recordEmployeeId
@@ -816,6 +839,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const getCheckoutStatus = (record: AttendanceRecord) => {
     if (!record.checkOut) return 'Active';
+    const { isOvernightShift, shiftStartMinutes, shiftEndAdjusted } = getShiftMetaForRecord(record);
     const earlyCheckoutCutoff = getEarlyCheckoutCutoffMinutes(record);
     const checkOutDate = new Date(record.checkOut);
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
@@ -828,6 +852,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const getOvertimeMinutesForRecord = (record: AttendanceRecord) => {
+    const { shift, isOvernightShift, shiftStartMinutes, shiftEndAdjusted } = getShiftMetaForRecord(record);
     if (!record.checkIn || !record.checkOut) {
       return Number.isFinite(record.overtimeHours) ? (record.overtimeHours || 0) * 60 : 0;
     }
@@ -835,8 +860,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const checkOutDate = new Date(record.checkOut);
     const checkInMinutes = getShiftAdjustedMinutes(
       checkInDate,
-      APP_CONFIG.SHIFT_START,
-      APP_CONFIG.SHIFT_END
+      shift.start,
+      shift.end
     ).currentMinutes;
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
     const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
@@ -849,6 +874,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const getEarlyCheckoutMinutesForRecord = (record: AttendanceRecord) => {
     if (!record.checkOut) return 0;
+    const { isOvernightShift, shiftStartMinutes } = getShiftMetaForRecord(record);
     const earlyCheckoutCutoff = getEarlyCheckoutCutoffMinutes(record);
     const checkOutDate = new Date(record.checkOut);
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
@@ -870,7 +896,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const overtimeHoursThisMonth = overtimeMinutesThisMonth / 60;
     const earlyCheckoutMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getEarlyCheckoutMinutesForRecord(record), 0);
     const earlyCheckoutHoursThisMonth = earlyCheckoutMinutesThisMonth / 60;
-    const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / shiftHours : 0;
+    const { shiftHours: targetShiftHours } = getShiftMetaForEmployee(targetUser.employeeId);
+    const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / targetShiftHours : 0;
     const overtimePay = targetUser.role === Role.HR ? 0 : overtimeHoursThisMonth * hourlyRate;
     const earlyCheckoutDeduction = earlyCheckoutHoursThisMonth * hourlyRate;
     const absentDaysThisMonth = leaves
@@ -1011,7 +1038,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const myRecord = [...records].reverse().find(r => r.userId === user.id && !r.checkOut);
-  const myShiftDate = getShiftDateString(new Date(), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+  const myShift = getShiftForEmployee(user.employeeId);
+  const myShiftDate = getShiftDateString(new Date(), myShift.start, myShift.end);
   const hasMyShiftRecord = records.some(r => r.userId === user.id && r.date === myShiftDate);
   const shiftLocked = hasMyShiftRecord && !myRecord;
   const canTrack = isWifiConnected || isCheckinOverride;
@@ -1071,20 +1099,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!record.checkIn) return record.status || 'On-Time';
     const worker = users.find(u => u.id === record.userId);
     if (worker?.workMode === 'Remote') return 'On-Time';
+    const shift = getShiftForEmployee(worker?.employeeId);
     const checkInDate = new Date(record.checkIn);
     if (Number.isNaN(checkInDate.getTime())) return record.status || 'On-Time';
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInDate,
-      APP_CONFIG.SHIFT_START,
-      APP_CONFIG.SHIFT_END
+      shift.start,
+      shift.end
     );
-    const shiftDate = getShiftDateString(checkInDate, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    const shiftDate = getShiftDateString(checkInDate, shift.start, shift.end);
     const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
     const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));
     const workerId = worker?.employeeId ? normalizeEmployeeId(worker.employeeId) : '';
     const isExemptUser = Boolean(workerId) && exemptIds.includes(workerId);
-    const [startHour, startMinute] = APP_CONFIG.SHIFT_START.split(':').map(Number);
-    const [endHour, endMinute] = APP_CONFIG.SHIFT_END.split(':').map(Number);
+    const [startHour, startMinute] = shift.start.split(':').map(Number);
+    const [endHour, endMinute] = shift.end.split(':').map(Number);
     const startTotal = startHour * 60 + startMinute;
     const endTotal = endHour * 60 + endMinute;
     const isOvernight = endTotal <= startTotal;

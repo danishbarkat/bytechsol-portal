@@ -1020,9 +1020,16 @@ const App: React.FC = () => {
     const matchedUser = users.find(u => normalizeEmployeeId(u.employeeId || '') === normalizedId);
     const todayStr = getLocalDateString(new Date());
     const isWfhToday = matchedUser ? isWfhApprovedForUser(matchedUser.id, todayStr) : false;
-    const isRemoteLoginAllowed = remoteLoginIds.includes(normalizedId) || matchedUser?.workMode === 'Remote' || isWfhToday;
-    if (ipStatus === 'blocked' && !isRemoteLoginAllowed) {
-      setError('Office Wi-Fi required for this account.');
+    const isLeaveToday = matchedUser
+      ? leaves.some(l => l.userId === matchedUser.id && l.status === 'Approved' && isDateInRange(todayStr, l.startDate, l.endDate))
+      : false;
+    const isHrOrAdmin = matchedUser ? [Role.HR, Role.CEO, Role.SUPERADMIN].includes(matchedUser.role) : false;
+    const isRemoteLoginAllowed = remoteLoginIds.includes(normalizedId)
+      || matchedUser?.workMode === 'Remote'
+      || isWfhToday
+      || isLeaveToday;
+    if (ipStatus === 'blocked' && !isRemoteLoginAllowed && !isHrOrAdmin) {
+      setError('Office Wi-Fi required or approved WFH/leave for this account.');
       return;
     }
     let foundUser = users.find(

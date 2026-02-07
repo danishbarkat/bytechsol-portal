@@ -256,7 +256,7 @@ const normalizeOvertimeRecords = (list: AttendanceRecord[], userList: User[] = [
     const currentTotal = Number.isFinite(record.totalHours) ? record.totalHours : 0;
     const needsOvertime = Math.abs((nextOvertime ?? 0) - currentOvertime) > 0.01;
     const needsTotal = Math.abs(computedTotal - currentTotal) > 0.01;
-    const nextStatus = isNoLateWindow(user?.employeeId, record.date || getShiftDateString(new Date(record.checkIn), shift.start, shift.end))
+    const nextStatus = isNoLateWindow(worker?.employeeId, record.date || getShiftDateString(new Date(record.checkIn), shift.start, shift.end))
       ? 'On-Time'
       : record.status;
     const needsStatus = nextStatus !== record.status && nextStatus !== undefined;

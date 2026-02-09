@@ -1103,29 +1103,40 @@ const App: React.FC = () => {
   };
 
   const calculateStatus = (checkInTime: Date): CheckInStatus => {
-    const shift = getShiftForEmployee(user?.employeeId);
     if (user?.workMode === 'Remote') return 'On-Time';
+
+    // First determine the shift date using default shift logic
+    const tempShift = getShiftForEmployee(user?.employeeId);
+    const shiftDate = getShiftDateString(checkInTime, tempShift.start, tempShift.end);
+
+    // Now get the actual shift for that specific date (handles overrides like BS-DABA010)
+    const shift = getShiftForEmployee(user?.employeeId, shiftDate);
+
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInTime,
       shift.start,
       shift.end
     );
-    const shiftDate = getShiftDateString(checkInTime, shift.start, shift.end);
+
     const weekday = getWeekdayLabel(shiftDate);
     const noLate = isNoLateWindow(user?.employeeId, shiftDate);
     if (noLate) return 'On-Time';
-    const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
+
+    const isFriday = weekday === 'Fri';
     const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));
     const userId = user?.employeeId ? normalizeEmployeeId(user.employeeId) : '';
     const isExemptUser = Boolean(userId) && exemptIds.includes(userId);
+
     const [startHour, startMinute] = shift.start.split(':').map(Number);
     const [endHour, endMinute] = shift.end.split(':').map(Number);
     const startTotal = startHour * 60 + startMinute;
     const endTotal = endHour * 60 + endMinute;
     const isOvernight = endTotal <= startTotal;
+
     const [cutoffHour, cutoffMinute] = APP_CONFIG.FRIDAY_LATE_EXEMPT_CUTOFF.split(':').map(Number);
     const cutoffBase = cutoffHour * 60 + cutoffMinute;
     const cutoffAdjusted = isOvernight && cutoffBase < startTotal ? cutoffBase + 24 * 60 : cutoffBase;
+
     const generalExemptIds = (APP_CONFIG as any).LATE_EXEMPT_EMPLOYEE_IDS || [];
     const isGeneralExempt = Boolean(userId) && generalExemptIds.includes(userId);
     const [genCutoffHour, genCutoffMinute] = ((APP_CONFIG as any).LATE_EXEMPT_CUTOFF || "20:00").split(':').map(Number);

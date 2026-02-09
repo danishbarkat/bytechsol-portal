@@ -1003,18 +1003,23 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     if (!record.checkIn) return record.status || 'On-Time';
     const checkInDate = new Date(record.checkIn);
     if (Number.isNaN(checkInDate.getTime())) return record.status || 'On-Time';
+
+    // Dynamically get shift and metrics for the record's date
+    const rDate = record.date || getShiftDateString(checkInDate, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    const rShift = getShiftForEmployee(user.employeeId, rDate);
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInDate,
-      shiftStart,
-      shiftEnd
+      rShift.start,
+      rShift.end
     );
-    const shiftDate = getShiftDateString(checkInDate, shiftStart, shiftEnd);
-    const weekday = getWeekdayLabel(shiftDate);
+
+    const weekday = getWeekdayLabel(rDate);
     const isNoLateWindow =
       user.employeeId &&
       normalizeEmployeeId(user.employeeId) === 'BS-DABA010' &&
       ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
     if (isNoLateWindow) return 'On-Time';
+
     const relaxation = APP_CONFIG.GRACE_PERIOD_MINS;
     if (currentMinutes < startMinutes) return 'Early';
     if (currentMinutes <= startMinutes + relaxation) return 'On-Time';
@@ -1024,8 +1029,9 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     const isGeneralExempt = Boolean(userId) && generalExemptIds.includes(userId);
     const [genCutoffHour, genCutoffMinute] = ((APP_CONFIG as any).LATE_EXEMPT_CUTOFF || "20:00").split(':').map(Number);
     const genCutoffBase = genCutoffHour * 60 + genCutoffMinute;
-    const isOvernight = shiftEndMinutes <= shiftStartMinutes;
-    const genCutoffAdjusted = isOvernight && genCutoffBase < (shiftEndMinutes || 0) ? genCutoffBase + 24 * 60 : genCutoffBase;
+
+    const { isOvernight: rIsOvernight, endMinutesAdjusted: rEndMinutesAdjusted } = getShiftMetrics(rShift.start, rShift.end);
+    const genCutoffAdjusted = rIsOvernight && genCutoffBase < (rEndMinutesAdjusted || 0) ? genCutoffBase + 24 * 60 : genCutoffBase;
 
     if (isGeneralExempt && currentMinutes <= genCutoffAdjusted) {
       return 'On-Time';
@@ -1036,14 +1042,27 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
 
   const getCheckoutStatus = (record: AttendanceRecord) => {
     if (!isValidDateValue(record.checkOut)) return 'Active';
-    const earlyCheckoutCutoff = getEarlyCheckoutCutoffMinutes(record);
+
+    // Dynamically get shift and metrics for the record's date
+    const rDate = record.date || getShiftDateString(new Date(record.checkIn), APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    const rShift = getShiftForEmployee(user.employeeId, rDate);
+    const { startMinutes: rStartMinutes, endMinutesAdjusted: rShiftEndMinutes, isOvernight: rIsOvernight } = getShiftMetrics(rShift.start, rShift.end);
+
+    const [otEndHour, otEndMinute] = (rShift.overtimeEnd || rShift.end).split(':').map(Number);
+    const otEndMinutesBase = otEndHour * 60 + otEndMinute;
+    const rOvertimeEndMinutes = (rIsOvernight && otEndMinutesBase < rStartMinutes)
+      ? otEndMinutesBase + 24 * 60
+      : otEndMinutesBase;
+
+    const earlyCheckoutCutoff = rShiftEndMinutes - (APP_CONFIG.CHECKOUT_EARLY_RELAXATION_MINS || 0);
     const checkOutDate = new Date(record.checkOut);
     const checkOutRawMinutes = getLocalTimeMinutes(checkOutDate);
-    const checkOutMinutes = isOvernightShift && checkOutRawMinutes < shiftStartMinutes
+    const checkOutMinutes = rIsOvernight && checkOutRawMinutes < rStartMinutes
       ? checkOutRawMinutes + 24 * 60
       : checkOutRawMinutes;
+
     if (checkOutMinutes < earlyCheckoutCutoff) return 'Early';
-    if (checkOutMinutes > overtimeEndMinutes) return 'Overtime';
+    if (checkOutMinutes > rOvertimeEndMinutes) return 'Overtime';
     return 'On-Time';
   };
 

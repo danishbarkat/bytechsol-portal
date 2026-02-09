@@ -1132,38 +1132,41 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!record.checkIn) return record.status || 'On-Time';
     const worker = users.find(u => u.id === record.userId);
     if (worker?.workMode === 'Remote') return 'On-Time';
-    const shift = getShiftForEmployee(worker?.employeeId);
+
     const checkInDate = new Date(record.checkIn);
     if (Number.isNaN(checkInDate.getTime())) return record.status || 'On-Time';
+
+    // Get shift and metrics for the record's date
+    const rDate = record.date || getShiftDateString(checkInDate, APP_CONFIG.SHIFT_START, APP_CONFIG.SHIFT_END);
+    const shift = getShiftForEmployee(worker?.employeeId, rDate);
     const { currentMinutes, startMinutes } = getShiftAdjustedMinutes(
       checkInDate,
       shift.start,
       shift.end
     );
-    const shiftDate = getShiftDateString(checkInDate, shift.start, shift.end);
-    const weekday = getWeekdayLabel(shiftDate);
+
+    const weekday = getWeekdayLabel(rDate);
     const isNoLateWindow =
       worker?.employeeId &&
       normalizeEmployeeId(worker.employeeId) === 'BS-DABA010' &&
       ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
     if (isNoLateWindow) return 'On-Time';
-    const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
+    const isFriday = weekday === 'Fri';
     const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));
     const workerId = worker?.employeeId ? normalizeEmployeeId(worker.employeeId) : '';
     const isExemptUser = Boolean(workerId) && exemptIds.includes(workerId);
-    const [startHour, startMinute] = shift.start.split(':').map(Number);
-    const [endHour, endMinute] = shift.end.split(':').map(Number);
-    const startTotal = startHour * 60 + startMinute;
-    const endTotal = endHour * 60 + endMinute;
-    const isOvernight = endTotal <= startTotal;
+
+    const { shiftStartMinutes: rStartMinutes, isOvernightShift: rIsOvernight, shiftEndAdjusted: rEndMinutesAdjusted } = getShiftMetaForEmployee(worker?.employeeId, rDate);
+
     const [cutoffHour, cutoffMinute] = APP_CONFIG.FRIDAY_LATE_EXEMPT_CUTOFF.split(':').map(Number);
     const cutoffBase = cutoffHour * 60 + cutoffMinute;
-    const cutoffAdjusted = isOvernight && cutoffBase < startTotal ? cutoffBase + 24 * 60 : cutoffBase;
+    const cutoffAdjusted = rIsOvernight && cutoffBase < rStartMinutes ? cutoffBase + 24 * 60 : cutoffBase;
+
     const generalExemptIds = (APP_CONFIG as any).LATE_EXEMPT_EMPLOYEE_IDS || [];
     const isGeneralExempt = Boolean(workerId) && generalExemptIds.includes(workerId);
     const [genCutoffHour, genCutoffMinute] = ((APP_CONFIG as any).LATE_EXEMPT_CUTOFF || "20:00").split(':').map(Number);
     const genCutoffBase = genCutoffHour * 60 + genCutoffMinute;
-    const genCutoffAdjusted = isOvernight && genCutoffBase < startTotal ? genCutoffBase + 24 * 60 : genCutoffBase;
+    const genCutoffAdjusted = rIsOvernight && genCutoffBase < rStartMinutes ? genCutoffBase + 24 * 60 : genCutoffBase;
 
     if (isGeneralExempt && currentMinutes <= genCutoffAdjusted) {
       return 'On-Time';

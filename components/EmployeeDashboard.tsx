@@ -1020,7 +1020,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     const isNoLateWindow =
       user.employeeId &&
       normalizeEmployeeId(user.employeeId) === 'BS-DABA010' &&
-      ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
+      ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday);
     if (isNoLateWindow) return 'On-Time';
 
     const relaxation = APP_CONFIG.GRACE_PERIOD_MINS;

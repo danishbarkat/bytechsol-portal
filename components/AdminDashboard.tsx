@@ -319,7 +319,8 @@ const buildDocumentHtml = (
       ${containerStart}
         <h1 style="font-size:20px;font-weight:800;margin:24px 0 6px 0;text-align:center;">Payslip</h1>
         <div style="text-align:center;font-size:13px;font-weight:700;color:#0f172a;margin-bottom:2px;">${company}</div>
-        <div style="text-align:center;font-size:11px;color:#64748b;margin-bottom:16px;">30 N Gould St Ste R Sheridon, WY 82801</div>
+        <div style="text-align:center;font-size:11px;color:#64748b;margin-bottom:2px;">Office 301 4th floor, Business bay, M9, Block 3 A Gulistan-e-Johar, Karachi, 75290</div>
+        <div style="text-align:center;font-size:10px;color:#94a3b8;margin-bottom:16px;">NTN: H117501</div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px;">
           <tr>
             <td style="padding:6px 0;color:#94a3b8;">Working Days</td>

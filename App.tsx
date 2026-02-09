@@ -145,7 +145,7 @@ const isNoLateWindow = (employeeId?: string, dateStr?: string) => {
   const normalized = normalizeEmployeeId(employeeId);
   if (normalized !== 'BS-DABA010') return false;
   const weekday = getWeekdayLabel(dateStr);
-  return ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
+  return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday);
 };
 
 const computeOvertimeHours = (
@@ -155,6 +155,8 @@ const computeOvertimeHours = (
   shiftEnd = APP_CONFIG.SHIFT_END,
   overtimeEnd?: string
 ): number => {
+  // Overtime disabled globally per user request
+  return 0;
   const checkInTime = new Date(checkInIso);
   const checkOutTime = new Date(checkOutIso);
   const [startHour, startMinute] = shiftStart.split(':').map(Number);

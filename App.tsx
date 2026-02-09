@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, AttendanceRecord, Role, CheckInStatus, LeaveRequest, ESSProfile, UserChecklist, WorkFromHomeRequest, AppNotification, Task } from './types';
+// Main application configuration
 import { APP_CONFIG, MOCK_USERS } from './constants';
 import logoUrl from './asset/public/logo.svg';
 import {
@@ -49,6 +50,7 @@ import { addDaysToDateString, buildZonedISOString, getLocalDateString, getShiftA
 import Layout from './components/Layout';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeeDashboard from './components/EmployeeDashboard';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const SAVED_SESSION_KEY = 'bytechsol_saved_session';
 const SAVED_LOGIN_KEY = 'bytechsol_saved_login';
@@ -106,13 +108,30 @@ const computeTotalHours = (checkInIso: string, checkOutIso: string): number => {
   return Math.max(0, (adjustedCheckOut - checkInMinutes) / 60);
 };
 
-const getShiftForEmployee = (employeeId?: string) => {
+const getShiftForEmployee = (employeeId?: string, dateStr?: string) => {
   const normalized = normalizeEmployeeId(employeeId || '');
   const override = (APP_CONFIG as any).SHIFT_OVERRIDES?.[normalized];
+  let end = override?.end || APP_CONFIG.SHIFT_END;
+  let overtimeEnd = override?.overtimeEnd || end;
+
+  if (normalized === 'BS-DABA010' && dateStr) {
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      const day = date.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+      if (day >= 1 && day <= 4) { // Mon-Thu
+        end = '02:00';
+        overtimeEnd = '02:00';
+      } else if (day === 5) { // Fri
+        end = '01:00';
+        overtimeEnd = '01:00';
+      }
+    }
+  }
+
   return {
     start: override?.start || APP_CONFIG.SHIFT_START,
-    end: override?.end || APP_CONFIG.SHIFT_END,
-    overtimeEnd: override?.overtimeEnd || override?.end || APP_CONFIG.SHIFT_END
+    end,
+    overtimeEnd
   };
 };
 
@@ -1093,8 +1112,8 @@ const App: React.FC = () => {
     );
     const shiftDate = getShiftDateString(checkInTime, shift.start, shift.end);
     const weekday = getWeekdayLabel(shiftDate);
-    const isNoLateWindow = isNoLateWindow(user?.employeeId, shiftDate);
-    if (isNoLateWindow) return 'On-Time';
+    const noLate = isNoLateWindow(user?.employeeId, shiftDate);
+    if (noLate) return 'On-Time';
     const isFriday = getWeekdayLabel(shiftDate) === 'Fri';
     const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));
     const userId = user?.employeeId ? normalizeEmployeeId(user.employeeId) : '';
@@ -1336,7 +1355,7 @@ const App: React.FC = () => {
 
   const handleCancelLeave = (leaveId: string) => {
     setLeaves(prev => {
-      const updated = prev.map(l => l.id === leaveId ? { ...l, status: 'Cancelled' } : l);
+      const updated = prev.map(l => l.id === leaveId ? { ...l, status: 'Cancelled' as const } : l);
       void saveLeaves(updated);
       return updated;
     });
@@ -1849,59 +1868,63 @@ const App: React.FC = () => {
       onMarkAllNotificationsRead={markAllNotificationsRead}
     >
       {user.role === Role.EMPLOYEE ? (
-        <EmployeeDashboard
-          user={user}
-          records={records}
-          leaves={leaves}
-          wfhRequests={wfhRequests}
-          essProfiles={essProfiles}
-          checklists={checklists}
-          onCheckIn={handleCheckIn}
-          onCheckOut={handleCheckOut}
-          onUpdateRecord={handleEmployeeRecordUpdate}
-          isWifiConnected={isWifiConnected}
-          isCheckinOverride={isCheckinOverrideUser}
-          onSubmitLeave={handleSubmitLeave}
-          onSubmitWfhRequest={handleSubmitWfhRequest}
-          onUpdateESS={handleUpdateESS}
-          onUpdateChecklist={handleUpdateChecklist}
-          onUpdateUser={handleUpdateUser}
+        <ErrorBoundary>
+          <EmployeeDashboard
+            user={user}
+            records={records}
+            leaves={leaves}
+            wfhRequests={wfhRequests}
+            essProfiles={essProfiles}
+            checklists={checklists}
+            onCheckIn={handleCheckIn}
+            onCheckOut={handleCheckOut}
+            onUpdateRecord={handleEmployeeRecordUpdate}
+            isWifiConnected={isWifiConnected}
+            isCheckinOverride={isCheckinOverrideUser}
+            onSubmitLeave={handleSubmitLeave}
+            onSubmitWfhRequest={handleSubmitWfhRequest}
+            onUpdateESS={handleUpdateESS}
+            onUpdateChecklist={handleUpdateChecklist}
+            onUpdateUser={handleUpdateUser}
 
-          onCancelLeave={handleCancelLeave}
-          tasks={tasks}
-          onAddTask={handleAddTask}
-          onUpdateTask={handleUpdateTask}
-          onDeleteTask={handleDeleteTask}
-          users={users}
-        />
+            onCancelLeave={handleCancelLeave}
+            tasks={tasks}
+            onAddTask={handleAddTask}
+            onUpdateTask={handleUpdateTask}
+            onDeleteTask={handleDeleteTask}
+            users={users}
+          />
+        </ErrorBoundary>
       ) : (
-        <AdminDashboard
-          user={user}
-          users={users}
-          records={records}
-          leaves={leaves}
-          wfhRequests={wfhRequests}
-          essProfiles={essProfiles}
-          checklists={checklists}
-          onLeaveAction={handleLeaveAction}
-          onCheckIn={handleCheckIn}
-          onCheckOut={handleCheckOut}
-          isWifiConnected={isWifiConnected}
-          isCheckinOverride={isCheckinOverrideUser}
-          onUpdateRecord={handleUpdateRecord}
-          onDeleteRecord={handleDeleteRecord}
-          onUpdateChecklist={handleUpdateChecklist}
-          onAddUser={handleAddUser}
-          onUpdateUser={handleUpdateUser}
-          onDeleteUser={handleDeleteUser}
-          onSubmitLeave={handleSubmitLeave}
-          onWfhAction={handleWfhAction}
-          onUpdateESS={handleUpdateESS}
-          tasks={tasks}
-          onAddTask={handleAddTask}
-          onUpdateTask={handleUpdateTask}
-          onDeleteTask={handleDeleteTask}
-        />
+        <ErrorBoundary>
+          <AdminDashboard
+            user={user}
+            users={users}
+            records={records}
+            leaves={leaves}
+            wfhRequests={wfhRequests}
+            essProfiles={essProfiles}
+            checklists={checklists}
+            onLeaveAction={handleLeaveAction}
+            onCheckIn={handleCheckIn}
+            onCheckOut={handleCheckOut}
+            isWifiConnected={isWifiConnected}
+            isCheckinOverride={isCheckinOverrideUser}
+            onUpdateRecord={handleUpdateRecord}
+            onDeleteRecord={handleDeleteRecord}
+            onUpdateChecklist={handleUpdateChecklist}
+            onAddUser={handleAddUser}
+            onUpdateUser={handleUpdateUser}
+            onDeleteUser={handleDeleteUser}
+            onSubmitLeave={handleSubmitLeave}
+            onWfhAction={handleWfhAction}
+            onUpdateESS={handleUpdateESS}
+            tasks={tasks}
+            onAddTask={handleAddTask}
+            onUpdateTask={handleUpdateTask}
+            onDeleteTask={handleDeleteTask}
+          />
+        </ErrorBoundary>
       )}
     </Layout>
   );

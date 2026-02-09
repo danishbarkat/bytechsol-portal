@@ -21,6 +21,9 @@ export interface User {
   basicSalary?: number;
   allowances?: number;
   salaryHidden?: boolean;
+  homeAllowance?: number;
+  travelAllowance?: number;
+  internetAllowance?: number;
   pin?: string;
   profileImage?: string | null;
   workMode?: 'Onsite' | 'Remote';

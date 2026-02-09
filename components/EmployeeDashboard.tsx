@@ -2,15 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AttendanceRecord, LeaveRequest, User, ESSProfile, UserChecklist, Role, WorkFromHomeRequest, Task } from '../types';
 import TaskBoard from './TaskBoard';
 import { formatDuration, calculateWeeklyOvertime, calculateDuration } from '../utils/storage';
-import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, formatTimeInZone } from '../utils/dates';
+import { getLocalDateString, getShiftDateString, getShiftAdjustedMinutes, getLocalTimeMinutes, formatTimeInZone, getWeekdayLabel } from '../utils/dates';
 import { APP_CONFIG } from '../constants';
 import Icon3D from './Icon3D';
 import { supabase, isSupabaseConfigured } from '../utils/supabase';
 
-const calculateTotalSalary = (basic?: number, allowances?: number, fallback?: number) => {
+const calculateTotalSalary = (basic?: number, allowances?: number, home?: number, travel?: number, internet?: number, fallback?: number) => {
   const baseValue = Number(basic) || 0;
   const allowanceValue = Number(allowances) || 0;
-  const total = baseValue + allowanceValue;
+  const homeValue = Number(home) || 0;
+  const travelValue = Number(travel) || 0;
+  const internetValue = Number(internet) || 0;
+  const total = baseValue + allowanceValue + homeValue + travelValue + internetValue;
   return total || (Number(fallback) || 0);
 };
 
@@ -37,13 +40,30 @@ const normalizeEmployeeId = (value: string): string => {
   return `BS-${withoutPrefix}`;
 };
 
-const getShiftForEmployee = (employeeId?: string) => {
+const getShiftForEmployee = (employeeId?: string, dateStr?: string) => {
   const normalized = employeeId ? normalizeEmployeeId(employeeId) : '';
   const override = (APP_CONFIG as any).SHIFT_OVERRIDES?.[normalized];
+  let end = override?.end || APP_CONFIG.SHIFT_END;
+  let overtimeEnd = override?.overtimeEnd || end;
+
+  if (normalized === 'BS-DABA010' && dateStr) {
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      const day = date.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+      if (day >= 1 && day <= 4) { // Mon-Thu
+        end = '02:00';
+        overtimeEnd = '02:00';
+      } else if (day === 5) { // Fri
+        end = '01:00';
+        overtimeEnd = '01:00';
+      }
+    }
+  }
+
   return {
     start: override?.start || APP_CONFIG.SHIFT_START,
-    end: override?.end || APP_CONFIG.SHIFT_END,
-    overtimeEnd: override?.overtimeEnd || override?.end || APP_CONFIG.SHIFT_END
+    end,
+    overtimeEnd
   };
 };
 
@@ -177,7 +197,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   onDeleteTask,
   users
 }) => {
-  const { start: shiftStart, end: shiftEnd } = getShiftForEmployee(user.employeeId);
+  const { start: shiftStart, end: shiftEnd } = getShiftForEmployee(user.employeeId, new Date().toISOString());
   const [tab, setTab] = useState<'attendance' | 'leaves' | 'profile' | 'checklists' | 'tasks'>('attendance');
   const buildLeaveTemplate = (employee: User) =>
     `Leave Application\n\nReason:\n\nRegards,\n${employee.name}\nID: ${employee.employeeId}`;
@@ -689,7 +709,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const lateAllowance = 3;
   const lateCountThisMonth = records.filter(r => matchesUserRecord(r) && r.status === 'Late' && isSameMonth(r.date, currentTime)).length;
   const lateRemaining = Math.max(0, lateAllowance - lateCountThisMonth);
-  const monthlySalary = calculateTotalSalary(user.basicSalary, user.allowances, user.salary);
+  const monthlySalary = calculateTotalSalary(user.basicSalary, user.allowances, user.homeAllowance, user.travelAllowance, user.internetAllowance, user.salary);
   const dailySalary = monthlySalary ? Math.round(monthlySalary / 30) : null;
   const paidLeavesThisMonth = leaves.filter(
     l =>
@@ -710,7 +730,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     shiftStart,
     shiftEnd
   );
-  const overtimeEndValue = (getShiftForEmployee(user.employeeId).overtimeEnd) || shiftEnd;
+  const overtimeEndValue = (getShiftForEmployee(user.employeeId, currentTime.toISOString()).overtimeEnd) || shiftEnd;
   const [overtimeEndHour, overtimeEndMinute] = overtimeEndValue.split(':').map(Number);
   const overtimeEndMinutesBase = (Number.isFinite(overtimeEndHour) ? overtimeEndHour : 0) * 60 + (Number.isFinite(overtimeEndMinute) ? overtimeEndMinute : 0);
   const overtimeEndMinutes = (isOvernightShift && overtimeEndMinutesBase < shiftStartMinutes)
@@ -904,8 +924,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const earlyCheckoutMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getEarlyCheckoutMinutesForRecord(record), 0);
   const earlyCheckoutHoursThisMonth = earlyCheckoutMinutesThisMonth / 60;
   const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / shiftHours : 0;
-  const overtimePay = overtimeHoursThisMonth * hourlyRate;
-  const earlyCheckoutDeduction = earlyCheckoutHoursThisMonth * hourlyRate;
+  const overtimePay = 0; // User requested no overtime pay
+  const earlyCheckoutDeduction = 0; // User requested no deduction for early checkout
   const monthDate = new Date(`${effectiveMonthFilter}-01T00:00:00`);
   const absentDaysThisMonth = leaves
     .filter(l => matchesUser(l.userId, l.userName) && l.id.startsWith('auto-absence:') && l.status === 'Approved' && isSameMonth(l.startDate, monthDate))
@@ -916,7 +936,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
   const baseAfterLeave = Math.max(0, monthlySalary - leaveDeduction);
   const taxableSalary = Math.max(0, baseAfterLeave - earlyCheckoutDeduction);
-  const monthlyTax = calculateMonthlyTax(taxableSalary);
+  const monthlyTax = calculateMonthlyTax(user.basicSalary || taxableSalary);
   const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
   const netPay = salaryAfterTax + overtimePay;
 

@@ -54,10 +54,13 @@ const splitName = (name?: string) => {
 const formatFullName = (firstName?: string, lastName?: string) =>
   [firstName, lastName].filter(Boolean).join(' ').trim();
 
-const calculateTotalSalary = (basic?: number, allowances?: number, fallback?: number) => {
+const calculateTotalSalary = (basic?: number, allowances?: number, home?: number, travel?: number, internet?: number, fallback?: number) => {
   const baseValue = Number(basic) || 0;
   const allowanceValue = Number(allowances) || 0;
-  const total = baseValue + allowanceValue;
+  const homeValue = Number(home) || 0;
+  const travelValue = Number(travel) || 0;
+  const internetValue = Number(internet) || 0;
+  const total = baseValue + allowanceValue + homeValue + travelValue + internetValue;
   return total || (Number(fallback) || 0);
 };
 
@@ -74,13 +77,30 @@ const normalizeEmployeeId = (value: string): string => {
   return `BS-${withoutPrefix}`;
 };
 
-const getShiftForEmployee = (employeeId?: string) => {
+const getShiftForEmployee = (employeeId?: string, dateStr?: string) => {
   const normalized = employeeId ? normalizeEmployeeId(employeeId) : '';
   const override = (APP_CONFIG as any).SHIFT_OVERRIDES?.[normalized];
+  let end = override?.end || APP_CONFIG.SHIFT_END;
+  let overtimeEnd = override?.overtimeEnd || end;
+
+  if (normalized === 'BS-DABA010' && dateStr) {
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      const day = date.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+      if (day >= 1 && day <= 4) { // Mon-Thu
+        end = '02:00';
+        overtimeEnd = '02:00';
+      } else if (day === 5) { // Fri
+        end = '01:00';
+        overtimeEnd = '01:00';
+      }
+    }
+  }
+
   return {
     start: override?.start || APP_CONFIG.SHIFT_START,
-    end: override?.end || APP_CONFIG.SHIFT_END,
-    overtimeEnd: override?.overtimeEnd || override?.end || APP_CONFIG.SHIFT_END
+    end,
+    overtimeEnd
   };
 };
 
@@ -228,7 +248,7 @@ const buildDocumentHtml = (
   const internetAllowance = Number(data.internetAllowance || 0);
   const otherDeductions = Number(data.otherDeductions || 0);
   const totalEarnings = basicPay + homeAllowance + travelAllowance + internetAllowance;
-  const tax = Math.round(calculateMonthlyTax(totalEarnings));
+  const tax = Math.round(calculateMonthlyTax(basicPay));
   const totalDeductions = tax + otherDeductions;
   const netPay = Math.max(0, totalEarnings - totalDeductions);
   const netPayDisplay = showNetPay ? formatCurrency(netPay) : 'Restricted';
@@ -752,8 +772,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const documentUsers = salarySlipSelfOnly
     ? [user]
     : sortedVisibleUsers;
-  const getShiftMetaForEmployee = (employeeId?: string) => {
-    const shift = getShiftForEmployee(employeeId);
+  const getShiftMetaForEmployee = (employeeId?: string, dateStr?: string) => {
+    const shift = getShiftForEmployee(employeeId, dateStr);
     const [shiftStartHour, shiftStartMinute] = shift.start.split(':').map(Number);
     const [shiftEndHour, shiftEndMinute] = shift.end.split(':').map(Number);
     const shiftStartMinutes = shiftStartHour * 60 + shiftStartMinute;
@@ -767,10 +787,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const getShiftMetaForRecord = (record: AttendanceRecord) => {
     const worker = users.find(u => u.id === record.userId);
-    return getShiftMetaForEmployee(worker?.employeeId);
+    return getShiftMetaForEmployee(worker?.employeeId, record.date);
   };
 
-  const shiftHours = getShiftMetaForEmployee(user.employeeId).shiftHours;
+  const shiftHours = getShiftMetaForEmployee(user.employeeId, new Date().toISOString()).shiftHours;
   const earlyCheckoutOverrides = ((APP_CONFIG as any).EARLY_CHECKOUT_OVERRIDES || []) as { employeeId: string; cutoff: string }[];
 
   const getRecordEmployeeId = (record: AttendanceRecord): string => {
@@ -903,16 +923,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!targetUser) return null;
     const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    const monthlySalary = calculateTotalSalary(targetUser.basicSalary, targetUser.allowances, targetUser.salary);
+    const monthlySalary = calculateTotalSalary(targetUser.basicSalary, targetUser.allowances, targetUser.homeAllowance, targetUser.travelAllowance, targetUser.internetAllowance, targetUser.salary);
     const monthRecords = records.filter(r => r.userId === targetUser.id && resolveRecordDate(r).startsWith(monthKey));
     const overtimeMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getOvertimeMinutesForRecord(record), 0);
     const overtimeHoursThisMonth = overtimeMinutesThisMonth / 60;
     const earlyCheckoutMinutesThisMonth = monthRecords.reduce((sum, record) => sum + getEarlyCheckoutMinutesForRecord(record), 0);
     const earlyCheckoutHoursThisMonth = earlyCheckoutMinutesThisMonth / 60;
-    const { shiftHours: targetShiftHours } = getShiftMetaForEmployee(targetUser.employeeId);
+    const { shiftHours: targetShiftHours } = getShiftMetaForEmployee(targetUser.employeeId, now.toISOString());
     const hourlyRate = monthlySalary > 0 ? (monthlySalary / 30) / targetShiftHours : 0;
-    const overtimePay = targetUser.role === Role.HR ? 0 : overtimeHoursThisMonth * hourlyRate;
-    const earlyCheckoutDeduction = earlyCheckoutHoursThisMonth * hourlyRate;
+    const overtimePay = 0; // User requested no overtime pay
+    const earlyCheckoutDeduction = 0; // User requested no deduction for early checkout
     const absentDaysThisMonth = leaves
       .filter(l => l.userId === targetUser.id && l.id.startsWith('auto-absence:') && l.status === 'Approved' && l.startDate.startsWith(monthKey))
       .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, now), 0);
@@ -921,7 +941,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, now), 0);
     const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
     const taxableSalary = Math.max(0, monthlySalary - leaveDeduction - earlyCheckoutDeduction);
-    const monthlyTax = calculateMonthlyTax(taxableSalary);
+    const monthlyTax = calculateMonthlyTax(targetUser.basicSalary || taxableSalary);
     const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
     const netPay = salaryAfterTax + overtimePay;
     return {
@@ -1993,7 +2013,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {workforceUsers.map(u => {
               const profile = essProfiles.find(p => p.userId === u.id);
               const progress = getChecklistProgress(u.id);
-              const totalSalary = calculateTotalSalary(u.basicSalary, u.allowances, u.salary);
+              const totalSalary = calculateTotalSalary(u.basicSalary, u.allowances, u.homeAllowance, u.travelAllowance, u.internetAllowance, u.salary);
               return (
                 <div key={u.id} className="glass-card rounded-[3rem] p-8 border border-white/40 shadow-xl shadow-blue-500/5 hover:shadow-2xl hover:shadow-blue-500/10 transition-all duration-500 group relative overflow-hidden flex flex-col justify-between">
                   <div className="absolute top-0 right-0 p-8">
@@ -2023,7 +2043,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <p className="text-xs font-black text-slate-900">{u.workMode || 'Onsite'}</p>
                       </div>
                       <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 col-span-2">
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Annual Remuneration</p>
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Monthly Remuneration</p>
                         <p className="text-xs font-black text-slate-900">PKR {totalSalary.toLocaleString()}</p>
                       </div>
                     </div>
@@ -2542,7 +2562,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <div className="space-y-1"><label htmlFor="user-employee-id" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Employee ID</label><input id="user-employee-id" name="employeeId" required readOnly type="text" value={formatEmployeeId(userForm.firstName, userForm.lastName, employeeIdSeed)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent outline-none font-bold text-slate-800 text-slate-500" /></div>
                 <div className="space-y-1"><label htmlFor="user-basic-salary" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Basic Salary (Monthly)</label><input id="user-basic-salary" name="basicSalary" type="number" value={userForm.basicSalary || ''} onChange={e => setUserForm({ ...userForm, basicSalary: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
-                <div className="space-y-1"><label htmlFor="user-allowances" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Allowances (Monthly)</label><input id="user-allowances" name="allowances" type="number" value={userForm.allowances || ''} onChange={e => setUserForm({ ...userForm, allowances: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-home-allowance" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Home Allowance</label><input id="user-home-allowance" name="homeAllowance" type="number" value={userForm.homeAllowance || ''} onChange={e => setUserForm({ ...userForm, homeAllowance: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-travel-allowance" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Travel Allowance</label><input id="user-travel-allowance" name="travelAllowance" type="number" value={userForm.travelAllowance || ''} onChange={e => setUserForm({ ...userForm, travelAllowance: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-internet-allowance" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Internet & Phone</label><input id="user-internet-allowance" name="internetAllowance" type="number" value={userForm.internetAllowance || ''} onChange={e => setUserForm({ ...userForm, internetAllowance: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
+                <div className="space-y-1"><label htmlFor="user-allowances" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Other Allowances (Monthly)</label><input id="user-allowances" name="allowances" type="number" value={userForm.allowances || ''} onChange={e => setUserForm({ ...userForm, allowances: Number(e.target.value) })} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" /></div>
                 <div className="space-y-1">
                   <label htmlFor="user-position" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Job Position</label>
                   <select

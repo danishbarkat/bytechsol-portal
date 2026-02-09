@@ -122,8 +122,13 @@ const getShiftForEmployee = (employeeId?: string, dateStr?: string) => {
         end = '02:00';
         overtimeEnd = '02:00';
       } else if (day === 5) { // Fri
-        end = '01:00';
-        overtimeEnd = '01:00';
+        const shiftStart = '01:00';
+        const shiftEnd = '05:00';
+        return {
+          start: shiftStart,
+          end: shiftEnd,
+          overtimeEnd: shiftEnd
+        };
       }
     }
   }
@@ -1381,7 +1386,8 @@ const App: React.FC = () => {
       saveRecordsLocal(newRecords);
       return newRecords;
     });
-    if (user?.role === Role.SUPERADMIN) {
+    const isTimeEditor = (APP_CONFIG as any).TIME_EDIT_EMPLOYEE_IDS?.includes(normalizeEmployeeId(user?.employeeId || ''));
+    if (user?.role === Role.SUPERADMIN || isTimeEditor) {
       void adminUpsertAttendanceRecord(updatedRecord).catch(console.error);
     } else {
       void upsertAttendanceRecord(updatedRecord);
@@ -1413,7 +1419,8 @@ const App: React.FC = () => {
       saveRecordsLocal(updated);
       return updated;
     });
-    if (user?.role === Role.SUPERADMIN) {
+    const isTimeEditor = (APP_CONFIG as any).TIME_EDIT_EMPLOYEE_IDS?.includes(normalizeEmployeeId(user?.employeeId || ''));
+    if (user?.role === Role.SUPERADMIN || isTimeEditor) {
       void adminDeleteAttendanceRecord(recordId).catch(console.error);
     } else {
       void deleteAttendanceRecord(recordId);
@@ -1878,7 +1885,7 @@ const App: React.FC = () => {
       onMarkNotificationRead={markNotificationRead}
       onMarkAllNotificationsRead={markAllNotificationsRead}
     >
-      {user.role === Role.EMPLOYEE ? (
+      {user.role === Role.EMPLOYEE && !(APP_CONFIG as any).TIME_EDIT_EMPLOYEE_IDS?.includes(normalizeEmployeeId(user.employeeId || '')) ? (
         <ErrorBoundary>
           <EmployeeDashboard
             user={user}

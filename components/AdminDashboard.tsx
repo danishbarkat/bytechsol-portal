@@ -91,8 +91,13 @@ const getShiftForEmployee = (employeeId?: string, dateStr?: string) => {
         end = '02:00';
         overtimeEnd = '02:00';
       } else if (day === 5) { // Fri
-        end = '01:00';
-        overtimeEnd = '01:00';
+        const shiftStart = '01:00';
+        const shiftEnd = '05:00';
+        return {
+          start: shiftStart,
+          end: shiftEnd,
+          overtimeEnd: shiftEnd
+        };
       }
     }
   }
@@ -551,7 +556,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateTask,
   onDeleteTask
 }) => {
-  const [tab, setTab] = useState<'attendance' | 'leaves' | 'overtime' | 'personnel' | 'documents' | 'tasks'>('attendance');
+  const [tab, setTab] = useState<'attendance' | 'leaves' | 'personnel' | 'documents' | 'tasks'>('attendance');
   const [selectedEmp, setSelectedEmp] = useState('all');
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -672,6 +677,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const isSuperadmin = user.role === Role.SUPERADMIN;
   const isHr = user.role === Role.HR;
   const isCeo = user.role === Role.CEO;
+  const isTimeEditor = (APP_CONFIG as any).TIME_EDIT_EMPLOYEE_IDS?.includes(normalizeEmployeeId(user.employeeId || ''));
+  const canEditTime = isSuperadmin || isTimeEditor;
   const canDeleteUsers = isSuperadmin || isCeo;
   const canResetPassword = Boolean(editingUser && editingUser.role !== Role.SUPERADMIN);
   const visibleUsers = users;
@@ -874,7 +881,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       ? checkOutRawMinutes + 24 * 60
       : checkOutRawMinutes;
     if (checkOutMinutes < earlyCheckoutCutoff) return 'Early';
-    if (checkOutMinutes > overtimeEndAdjusted) return 'Overtime';
     return 'On-Time';
   };
 
@@ -941,7 +947,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, now), 0);
     const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
     const taxableSalary = Math.max(0, monthlySalary - leaveDeduction - earlyCheckoutDeduction);
-    const monthlyTax = calculateMonthlyTax(targetUser.basicSalary || taxableSalary);
+    const monthlyTax = calculateMonthlyTax(targetUser.basicSalary || 0);
     const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
     const netPay = salaryAfterTax + overtimePay;
     return {
@@ -976,8 +982,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       employeeName: selectedUser.name || fallbackName,
       employeeId: selectedUser.employeeId || '',
       role: roleLabel,
-      basicPay: selectedUser.basicSalary ? String(selectedUser.basicSalary) : prev.basicPay,
-      homeAllowance: selectedUser.allowances ? String(selectedUser.allowances) : prev.homeAllowance
+      basicPay: selectedUser.basicSalary ? String(selectedUser.basicSalary) : '',
+      homeAllowance: selectedUser.homeAllowance ? String(selectedUser.homeAllowance) : (selectedUser.allowances ? String(selectedUser.allowances) : ''),
+      travelAllowance: selectedUser.travelAllowance ? String(selectedUser.travelAllowance) : '',
+      internetAllowance: selectedUser.internetAllowance ? String(selectedUser.internetAllowance) : ''
     }));
   };
 
@@ -1041,7 +1049,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       docForm,
       logoDataUrl || logoUrl,
       signatureDataUrl,
-      user.role === Role.CEO
+      isSuperadmin || isCeo
     ),
     [docType, docForm, logoDataUrl, signatureDataUrl, user.role]
   );
@@ -1397,18 +1405,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <tr><th>Earnings</th><th>Amount</th></tr>
               <tr><td>Basic Salary</td><td>${formatCurrency(basicPay)}</td></tr>
               <tr><td>Allowances</td><td>${formatCurrency(allowancePay)}</td></tr>
-              <tr><td>Overtime (${snapshot.overtimeHoursThisMonth.toFixed(2)} hrs)</td><td>${formatCurrency(snapshot.overtimePay)}</td></tr>
-              <tr><th>Deductions</th><th>Amount</th></tr>
               <tr><td>Unpaid Leave (${snapshot.unpaidLeaveDays} days)</td><td>- ${formatCurrency(snapshot.leaveDeduction)}</td></tr>
               <tr><td>Early Checkout (${snapshot.earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</td><td>- ${formatCurrency(snapshot.earlyCheckoutDeduction)}</td></tr>
               <tr><td>Absents (auto) (${snapshot.absentDaysThisMonth} days)</td><td>Included</td></tr>
               <tr><td>Tax (PK progressive)</td><td>- ${formatCurrency(snapshot.monthlyTax)}</td></tr>
               <tr><td class="total">Taxable Salary</td><td class="total">${formatCurrency(snapshot.taxableSalary)}</td></tr>
               <tr><td class="total">Salary After Tax</td><td class="total">${formatCurrency(snapshot.salaryAfterTax)}</td></tr>
-              <tr><td class="total">Net Pay (with overtime)</td><td class="total">${formatCurrency(snapshot.netPay)}</td></tr>
+              <tr><td class="total">Net Pay</td><td class="total">${formatCurrency(snapshot.netPay)}</td></tr>
             </table>
             <div class="summary">
-              <div>Overtime is not taxed</div>
               <div class="net">${formatCurrency(snapshot.netPay)}</div>
             </div>
           </div>
@@ -1506,7 +1511,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {[
             { id: 'attendance', label: 'Attendance', icon: 'Calendar' },
             { id: 'leaves', label: 'Leaves', icon: 'Plane' },
-            { id: 'overtime', label: 'Overtime', icon: 'Clock' },
             { id: 'personnel', label: 'Personnel', icon: 'Users' },
             { id: 'documents', label: 'Docs', icon: 'FileStack' },
             { id: 'tasks', label: 'Tasks', icon: 'ListChecks' }
@@ -1584,7 +1588,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               )}
             </div>
-            {isSuperadmin && (
+            {canEditTime && (
               <button
                 type="button"
                 onClick={() => {
@@ -1648,12 +1652,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <td className="px-8 py-6">
                           <div className="flex flex-col items-center">
                             <span className="text-sm font-black text-slate-900">{r.checkOut ? formatTimeInZone(r.checkOut) : <span className="text-emerald-500 animate-pulse">ACTIVE</span>}</span>
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border w-fit mt-1.5 shadow-sm transition-transform group-hover:scale-105 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'Overtime' ? 'border-emerald-100 text-emerald-600 bg-emerald-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-500 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border w-fit mt-1.5 shadow-sm transition-transform group-hover:scale-105 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-500 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
                           </div>
                         </td>
                         <td className="px-8 py-6 font-black text-blue-600 text-center text-sm">{r.totalHours ? formatDuration(r.totalHours) : '--'}</td>
                         <td className="px-8 py-6 text-right">
-                          {isSuperadmin && (
+                          {canEditTime && (
                             <button
                               onClick={() => startEditingRecord(r)}
                               className="px-4 py-2 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-all text-[11px] font-black uppercase tracking-widest shadow-sm ring-1 ring-blue-100"
@@ -1682,10 +1686,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="px-4 py-2.5 rounded-2xl bg-white border border-slate-100 shadow-sm flex flex-col items-center min-w-[100px]">
                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Hours</span>
                   <span className="text-xs font-black text-slate-900">{formatDuration(monthTotalHours)}</span>
-                </div>
-                <div className="px-4 py-2.5 rounded-2xl bg-emerald-50 border border-emerald-100 shadow-sm flex flex-col items-center min-w-[100px]">
-                  <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Overtime</span>
-                  <span className="text-xs font-black text-emerald-600">{formatDuration(monthOvertimeHours)}</span>
                 </div>
                 <div className="relative">
                   <input
@@ -1745,7 +1745,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <td className="px-8 py-6">
                           <div className="flex flex-col items-center">
                             <span className="text-sm font-black text-slate-900">{r.checkOut ? formatTimeInZone(r.checkOut) : <span className="text-emerald-500 animate-pulse">ACTIVE</span>}</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border w-fit mt-1.5 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'Overtime' ? 'border-emerald-100 text-emerald-600 bg-emerald-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-500 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border w-fit mt-1.5 ${getCheckoutStatus(r) === 'Early' ? 'border-rose-100 text-rose-600 bg-rose-50' : getCheckoutStatus(r) === 'On-Time' ? 'border-blue-100 text-blue-600 bg-blue-50' : 'border-slate-100 text-slate-500 bg-slate-50'}`}>{getCheckoutStatus(r)}</span>
                           </div>
                         </td>
                         <td className="px-8 py-6 font-black text-blue-600 text-center text-sm">{r.totalHours ? formatDuration(r.totalHours) : '--'}</td>
@@ -1901,98 +1901,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {tab === 'overtime' && (
-        <div className="space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="glass-card rounded-[2.5rem] p-8 border-b-4 border-blue-500">
-              <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">Weekly OT Pool</p>
-              <h2 className="text-4xl font-black text-slate-900">{formatDuration(overtimeUsers.reduce((sum, u) => sum + calculateWeeklyOvertime(u.id, visibleRecords), 0))}</h2>
-            </div>
-            <div className="glass-card rounded-[2.5rem] p-8 border-b-4 border-emerald-500">
-              <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">Active OT Claims</p>
-              <h2 className="text-4xl font-black text-slate-900">{overtimeUsers.filter(u => calculateWeeklyOvertime(u.id, visibleRecords) > 0).length} Employees</h2>
-            </div>
-            <div className="glass-card rounded-[2.5rem] p-8 border-b-4 border-amber-500">
-              <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">Avg. Weekly OT</p>
-              <h2 className="text-4xl font-black text-slate-900">{formatDuration(overtimeUsers.reduce((sum, u) => sum + calculateWeeklyOvertime(u.id, visibleRecords), 0) / (overtimeUsers.length || 1))}</h2>
-            </div>
-          </div>
-          <div className="glass-card rounded-[2.5rem] p-0 overflow-hidden border border-white/40 shadow-2xl shadow-blue-500/5">
-            <div className="p-8 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Efficiency Roster</h3>
-              <div className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 bg-white px-4 py-1.5 rounded-full border border-slate-100 shadow-sm">
-                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
-                Weekly Aggregates
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[800px] text-left">
-                <thead>
-                  <tr className="bg-slate-50/80 text-[11px] font-black uppercase tracking-widest text-slate-500">
-                    <th className="px-8 py-5">Employee</th>
-                    <th className="px-8 py-5 text-center">Standard Hours</th>
-                    <th className="px-8 py-5 text-center text-blue-600">Overtime Pool</th>
-                    <th className="px-8 py-5 text-right">Benefit Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {overtimeUsers.map(u => {
-                    const ot = calculateWeeklyOvertime(u.id, visibleRecords);
-                    const totalHrs = visibleRecords.filter(r => r.userId === u.id).reduce((sum, r) => sum + (r.totalHours || 0), 0);
-                    return (
-                      <tr key={u.id} className="hover:bg-slate-50/80 transition-all group">
-                        <td className="px-8 py-6">
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 font-black text-xs shadow-sm group-hover:scale-105 transition-transform">
-                              {toInitials(u.name)}
-                            </div>
-                            <span className="font-black text-slate-900 text-sm">{u.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-8 py-6 font-bold text-slate-500 text-center text-sm">{formatDuration(totalHrs)}</td>
-                        <td className="px-8 py-6 font-black text-blue-600 text-center text-sm">{ot > 0 ? formatDuration(ot) : <span className="text-slate-300">--</span>}</td>
-                        <td className="px-8 py-6 text-right">
-                          <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm border transition-all ${ot > 0 ? 'bg-blue-50 text-blue-600 border-blue-100 group-hover:bg-blue-600 group-hover:text-white' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
-                            {ot > 0 ? 'OT Eligible' : 'Standard'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-2">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-              Showing {sortedAttendance.length === 0 ? 0 : attendanceStartIndex + 1}
-              -
-              {Math.min(attendanceStartIndex + attendancePageSize, sortedAttendance.length)} of {sortedAttendance.length}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setAttendancePage(prev => Math.max(1, prev - 1))}
-                disabled={safeAttendancePage <= 1}
-                className="px-4 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all disabled:opacity-40"
-              >
-                Prev
-              </button>
-              <span className="text-[11px] font-black uppercase tracking-widest text-slate-600">
-                Page {safeAttendancePage} / {totalAttendancePages}
-              </span>
-              <button
-                type="button"
-                onClick={() => setAttendancePage(prev => Math.min(totalAttendancePages, prev + 1))}
-                disabled={safeAttendancePage >= totalAttendancePages}
-                className="px-4 py-2 rounded-xl bg-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-200 transition-all disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {tab === 'personnel' && (
         <div className="space-y-6">
@@ -2155,10 +2063,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   <span className="font-bold text-slate-500">Early Departure ({snapshot.earlyCheckoutHoursThisMonth.toFixed(1)}h)</span>
                                   <span className="font-black text-rose-500">-{formatCurrency(snapshot.earlyCheckoutDeduction)}</span>
                                 </div>
-                                <div className="flex items-center justify-between text-[11px]">
-                                  <span className="font-bold text-slate-500 text-blue-600">Performance Overtime</span>
-                                  <span className="font-black text-emerald-600">+{formatCurrency(snapshot.overtimePay)}</span>
-                                </div>
                               </div>
 
                               <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 space-y-2 mt-2">
@@ -2175,7 +2079,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <div className="p-6 bg-slate-900 rounded-[2rem] shadow-xl shadow-slate-900/10 mt-6 flex flex-col items-center">
                                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Final Net Disbursement</span>
                                 <span className="text-2xl font-black text-white">{formatCurrency(snapshot.netPay)}</span>
-                                <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest mt-2">Exempt of Overtime Tax</p>
                               </div>
                             </div>
                           </div>
@@ -2481,7 +2384,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="space-y-1"><label htmlFor="manual-edit-out-date" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Check Out Date</label><input id="manual-edit-out-date" name="manualOutDate" type="date" value={editOutDate} onChange={e => setEditOutDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div>
               <div className="grid grid-cols-2 gap-4"><div className="space-y-1"><label htmlFor="manual-edit-in" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Check In</label><input id="manual-edit-in" name="manualCheckIn" type="time" value={editInTime} onChange={e => setEditInTime(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div><div className="space-y-1"><label htmlFor="manual-edit-out" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Check Out</label><input id="manual-edit-out" name="manualCheckOut" type="time" value={editOutTime} onChange={e => setEditOutTime(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-slate-100 outline-none font-bold text-slate-800" /></div></div>
               <div className="flex flex-wrap gap-3 pt-4">
-                {isSuperadmin && (
+                {canEditTime && (
                   <button
                     type="button"
                     onClick={() => {

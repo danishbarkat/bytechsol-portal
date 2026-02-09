@@ -54,8 +54,13 @@ const getShiftForEmployee = (employeeId?: string, dateStr?: string) => {
         end = '02:00';
         overtimeEnd = '02:00';
       } else if (day === 5) { // Fri
-        end = '01:00';
-        overtimeEnd = '01:00';
+        const shiftStart = '01:00';
+        const shiftEnd = '05:00';
+        return {
+          start: shiftStart,
+          end: shiftEnd,
+          overtimeEnd: shiftEnd
+        };
       }
     }
   }
@@ -936,14 +941,14 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
   const baseAfterLeave = Math.max(0, monthlySalary - leaveDeduction);
   const taxableSalary = Math.max(0, baseAfterLeave - earlyCheckoutDeduction);
-  const monthlyTax = calculateMonthlyTax(user.basicSalary || taxableSalary);
+  const monthlyTax = calculateMonthlyTax(user.basicSalary || 0);
   const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
   const netPay = salaryAfterTax + overtimePay;
 
   const downloadSalarySlip = () => {
     const monthKey = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}`;
     const slipId = `${user.employeeId}_${monthKey}`;
-    const basicPay = Number(user.basicSalary) || (Number(user.salary) || 0);
+    const basicPay = Number(user.basicSalary) || 0;
     const allowancePay = Number(user.allowances) || 0;
     const html = `<!doctype html>
       <html>
@@ -972,7 +977,6 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
               <tr><th>Earnings</th><th>Amount</th></tr>
               <tr><td>Basic Salary</td><td>${formatCurrency(basicPay)}</td></tr>
               <tr><td>Allowances</td><td>${formatCurrency(allowancePay)}</td></tr>
-              <tr><td>Overtime (${overtimeHoursThisMonth.toFixed(2)} hrs)</td><td>${formatCurrency(overtimePay)}</td></tr>
               <tr><th>Deductions</th><th>Amount</th></tr>
               <tr><td>Unpaid Leave (${unpaidLeaveDays} days)</td><td>- ${formatCurrency(leaveDeduction)}</td></tr>
               <tr><td>Early Checkout (${earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</td><td>- ${formatCurrency(earlyCheckoutDeduction)}</td></tr>
@@ -980,10 +984,9 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
               <tr><td>Tax (PK progressive)</td><td>- ${formatCurrency(monthlyTax)}</td></tr>
               <tr><td class="total">Taxable Salary</td><td class="total">${formatCurrency(taxableSalary)}</td></tr>
               <tr><td class="total">Salary After Tax</td><td class="total">${formatCurrency(salaryAfterTax)}</td></tr>
-              <tr><td class="total">Net Pay (with overtime)</td><td class="total">${formatCurrency(netPay)}</td></tr>
+              <tr><td class="total">Net Pay</td><td class="total">${formatCurrency(netPay)}</td></tr>
             </table>
             <div class="summary">
-              <div>Overtime is not taxed</div>
               <div class="net">${formatCurrency(netPay)}</div>
             </div>
           </div>
@@ -1062,7 +1065,6 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       : checkOutRawMinutes;
 
     if (checkOutMinutes < earlyCheckoutCutoff) return 'Early';
-    if (checkOutMinutes > rOvertimeEndMinutes) return 'Overtime';
     return 'On-Time';
   };
 
@@ -1142,14 +1144,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 my-8">
-                    <div className="p-4 bg-blue-50/50 rounded-[2rem] border border-blue-100/50 group hover:bg-blue-600 transition-all duration-500 relative overflow-hidden">
-                      <div className="relative z-10">
-                        <Icon3D icon="Activity" size="xs" variant="blue" className="mb-2 group-hover:bg-white group-hover:border-white" />
-                        <p className="text-[11px] font-black text-blue-400 uppercase tracking-widest mb-1 group-hover:text-blue-100 transition-colors">Overtime</p>
-                        <p className="text-lg font-black text-blue-600 group-hover:text-white transition-colors">{weeklyOT > 0 ? formatDuration(weeklyOT) : '0h 0m'}</p>
-                      </div>
-                    </div>
+                  <div className="grid grid-cols-1 gap-4 my-8">
                     <div className="p-4 bg-emerald-50/50 rounded-[2rem] border border-emerald-100/50 group hover:bg-emerald-600 transition-all duration-500 relative overflow-hidden">
                       <div className="relative z-10">
                         <Icon3D icon="Timer" size="xs" variant="emerald" className="mb-2 group-hover:bg-white group-hover:border-white" />
@@ -1200,24 +1195,6 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     </button>
                   )}
 
-                  {canShowOvertimeToggle && (
-                    <div className="mt-6 p-5 bg-slate-50/80 rounded-[2.5rem] border border-slate-100 transition-all hover:border-blue-200">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-left">
-                          <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">OT Boost</p>
-                          <p className="text-[11px] font-bold text-slate-500">15 min max</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={overtimeActive ? () => stopOvertime(false) : startOvertime}
-                          disabled={!canStartOvertime && !overtimeActive}
-                          className={`px-6 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all duration-500 ${overtimeActive ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white'} disabled:opacity-40`}
-                        >
-                          {overtimeActive ? 'Stop' : 'Start'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -1268,147 +1245,50 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     </div>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[640px] text-left">
-                      <thead>
-                        <tr className="text-[11px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-50">
-                          <th className="pb-4">Date</th>
-                          <th className="pb-4">Check In</th>
-                          <th className="pb-4">Check Out</th>
-                          <th className="pb-4 text-right">Hours</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {paginatedEmployeeRecords.map(r => (
-                          <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
-                            <td className="py-6 font-black text-slate-900">{resolveRecordDate(r)}</td>
-                            <td className="py-6">
-                              <div className="flex flex-col">
-                                <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
-                                <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
-                              </div>
-                            </td>
-                            <td className="py-6">
-                              <div className="flex flex-col">
-                                <span className="text-xs font-black">{isValidDateValue(r.checkOut) ? formatTimeInZone(r.checkOut) : 'Active'}</span>
-                                <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-500'}`}>{getCheckoutStatus(r)}</span>
-                              </div>
-                            </td>
-                            <td className="py-6 font-black text-blue-600 text-right">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {totalAttendancePages > 1 && (
-                    <div className="flex items-center justify-between mt-8 pt-6 border-t border-slate-50">
-                      <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
-                        Page {attendancePage} of {totalAttendancePages}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setAttendancePage(p => Math.max(1, p - 1))}
-                          disabled={attendancePage === 1}
-                          className="px-4 py-2 rounded-xl bg-slate-50 text-[11px] font-black uppercase tracking-widest text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition-all font-black"
-                        >
-                          Prev
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAttendancePage(p => Math.min(totalAttendancePages, p + 1))}
-                          disabled={attendancePage === totalAttendancePages}
-                          className="px-4 py-2 rounded-xl bg-slate-50 text-[11px] font-black uppercase tracking-widest text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition-all font-black"
-                        >
-                          Next
-                        </button>
+                    {sortedMonthRecords.length === 0 ? (
+                      <div className="text-center py-20 bg-slate-50/50 rounded-[2.5rem] border-2 border-dashed border-slate-100 flex flex-col items-center gap-3">
+                        <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-slate-300 shadow-sm">
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        </div>
+                        <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">No analytics for {monthSummaryLabel}</p>
                       </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10 mt-6">
-              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 mb-8 border-b border-slate-50 pb-6">
-                <div className="space-y-1">
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Monthly Analytics</h3>
-                  <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{monthSummaryLabel}</p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-slate-50/50 p-2 rounded-[2rem] border border-slate-100">
-                    <div className="flex items-center gap-2 px-4 py-2">
-                      <label htmlFor="employee-attendance-month" className="text-[11px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Selected Month</label>
-                      <div className="relative">
-                        <input
-                          id="employee-attendance-month"
-                          type="month"
-                          value={attendanceMonthFilter}
-                          onChange={e => setAttendanceMonthFilter(e.target.value)}
-                          className="bg-white border-2 border-slate-100 rounded-xl px-4 py-2 text-[11px] font-black text-slate-700 outline-none focus:border-blue-500 transition-all cursor-pointer appearance-none min-w-[140px]"
-                          ref={attendanceMonthRef}
-                          onClick={(e) => {
-                            (e.target as any).showPicker?.();
-                          }}
-                        />
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[640px] text-left">
+                          <thead>
+                            <tr className="text-[11px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-50">
+                              <th className="pb-4">Date</th>
+                              <th className="pb-4">Check In</th>
+                              <th className="pb-4">Check Out</th>
+                              <th className="pb-4 text-right">Hours</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {sortedMonthRecords.map(r => (
+                              <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
+                                <td className="py-6 font-black text-slate-900">{resolveRecordDate(r)}</td>
+                                <td className="py-6">
+                                  <div className="flex flex-col">
+                                    <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
+                                    <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
+                                  </div>
+                                </td>
+                                <td className="py-6">
+                                  <div className="flex flex-col">
+                                    <span className="text-xs font-black">{isValidDateValue(r.checkOut) ? formatTimeInZone(r.checkOut) : 'Active'}</span>
+                                    <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-500'}`}>{getCheckoutStatus(r)}</span>
+                                  </div>
+                                </td>
+                                <td className="py-6 font-black text-blue-600 text-right">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 pr-2">
-                      <div className="flex flex-col items-center px-6 py-2 bg-white rounded-2xl shadow-sm border border-slate-100">
-                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Hours</span>
-                        <span className="text-sm font-black text-slate-900">{formatDuration(monthTotalHours)}</span>
-                      </div>
-                      <div className="flex flex-col items-center px-6 py-2 bg-emerald-50 rounded-2xl shadow-sm border border-emerald-100">
-                        <span className="text-[10px] font-black text-emerald-500/70 uppercase tracking-widest mb-1">Overtime</span>
-                        <span className="text-sm font-black text-emerald-600">{formatDuration(monthOvertimeHours)}</span>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>
-              {sortedMonthRecords.length === 0 ? (
-                <div className="text-center py-20 bg-slate-50/50 rounded-[2.5rem] border-2 border-dashed border-slate-100 flex flex-col items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-slate-300 shadow-sm">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10m-12 8h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                  </div>
-                  <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">No analytics for {monthSummaryLabel}</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[640px] text-left">
-                    <thead>
-                      <tr className="text-[11px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-50">
-                        <th className="pb-4">Date</th>
-                        <th className="pb-4">Check In</th>
-                        <th className="pb-4">Check Out</th>
-                        <th className="pb-4 text-right">Hours</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {sortedMonthRecords.map(r => (
-                        <tr key={r.id} className="hover:bg-slate-50/50 transition-all">
-                          <td className="py-6 font-black text-slate-900">{resolveRecordDate(r)}</td>
-                          <td className="py-6">
-                            <div className="flex flex-col">
-                              <span className="text-xs font-black">{formatTimeInZone(r.checkIn)}</span>
-                              <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest w-fit mt-1 ${getDisplayStatus(r) === 'Late' ? 'bg-rose-50 text-rose-600' : getDisplayStatus(r) === 'Early' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>{getDisplayStatus(r)}</span>
-                            </div>
-                          </td>
-                          <td className="py-6">
-                            <div className="flex flex-col">
-                              <span className="text-xs font-black">{isValidDateValue(r.checkOut) ? formatTimeInZone(r.checkOut) : 'Active'}</span>
-                              <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest w-fit mt-1 ${getCheckoutStatus(r) === 'Early' ? 'bg-rose-50 text-rose-600' : getCheckoutStatus(r) === 'Overtime' ? 'bg-emerald-50 text-emerald-600' : getCheckoutStatus(r) === 'On-Time' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-500'}`}>{getCheckoutStatus(r)}</span>
-                            </div>
-                          </td>
-                          <td className="py-6 font-black text-blue-600 text-right">{r.totalHours ? formatDuration(r.totalHours) : 'Active'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -1832,10 +1712,6 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                         <span className="font-bold text-slate-500">Early Checkout ({earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</span>
                         <span className="font-black text-rose-500">- {formatCurrency(earlyCheckoutDeduction)}</span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-500">Overtime ({overtimeHoursThisMonth.toFixed(2)} hrs)</span>
-                        <span className="font-black text-emerald-600">+ {formatCurrency(overtimePay)}</span>
-                      </div>
                       <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
                         <span className="font-bold text-slate-600">Taxable Salary</span>
                         <span className="font-black text-slate-900">{formatCurrency(taxableSalary)}</span>
@@ -1849,11 +1725,10 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                         <span className="font-black text-slate-900">{formatCurrency(salaryAfterTax)}</span>
                       </div>
                       <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                        <span className="font-black text-slate-900">Salary with Overtime</span>
+                        <span className="font-black text-slate-900">Net Payable</span>
                         <span className="font-black text-blue-600">{formatCurrency(netPay)}</span>
                       </div>
                     </div>
-                    <p className="mt-5 text-[11px] font-bold text-slate-400 uppercase text-center">Overtime is not taxed</p>
                   </>
                 )}
               </div>

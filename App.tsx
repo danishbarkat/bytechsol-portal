@@ -32,7 +32,8 @@ import {
   saveTasks,
   fetchTasksRemote,
   fetchNotificationsRemote,
-  saveNotifications
+  saveNotifications,
+  upsertUserRemote
 } from './utils/storage';
 import {
   adminUpsertAttendanceRecord,
@@ -355,7 +356,7 @@ const resetLateStatuses = (list: AttendanceRecord[], userList: User[]): { normal
     const employeeId = user?.employeeId ? normalizeEmployeeId(user.employeeId) : normalizeEmployeeId(String(record.userId || ''));
     if (!resetIds.includes(employeeId)) return record;
     changed = true;
-    return { ...record, status: 'On-Time' };
+    return { ...record, status: 'On-Time' as CheckInStatus };
   });
   return { normalized, changed };
 };

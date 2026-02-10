@@ -648,7 +648,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const weeklyOT = calculateWeeklyOvertime(user.id, records);
   const workMode = user.workMode || 'Onsite';
   const canTrack = workMode === 'Remote' || isWifiConnected || isWfhToday || isCheckinOverride;
-  const canViewSalary = user.role !== Role.EMPLOYEE;
+  const canViewSalary = (APP_CONFIG as any).ALLOW_EMPLOYEE_SALARY_VIEW !== false;
   const salaryHidden = Boolean(user.salaryHidden || !canViewSalary);
   const employeeRecords = records.filter(r => {
     if (r.userId === user.id) return true;
@@ -952,24 +952,28 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const overtimePay = 0; // User requested no overtime pay
   const earlyCheckoutDeduction = 0; // User requested no deduction for early checkout
   const monthDate = new Date(`${effectiveMonthFilter}-01T00:00:00`);
-  const absentDaysThisMonth = leaves
-    .filter(l => matchesUser(l.userId, l.userName) && l.id.startsWith('auto-absence:') && l.status === 'Approved' && isSameMonth(l.startDate, monthDate))
-    .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, monthDate), 0);
+  const absentDaysThisMonth = 0; // ignore auto-absences for payroll
   const unpaidLeaveDays = leaves
-    .filter(l => matchesUser(l.userId, l.userName) && l.status === 'Approved' && l.isPaid === false && isSameMonth(l.startDate, monthDate))
+    .filter(l => matchesUser(l.userId, l.userName) && l.status === 'Approved' && l.isPaid === false && isSameMonth(l.startDate, monthDate) && !l.id.startsWith('auto-absence:'))
     .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, monthDate), 0);
-  const leaveDeduction = unpaidLeaveDays * (basicPay / 30);
-  const baseAfterLeave = Math.max(0, basicPay - leaveDeduction);
-  const taxableSalary = Math.max(0, baseAfterLeave - earlyCheckoutDeduction);
-  const monthlyTax = calculateMonthlyTax(basicPay);
+  const totalLeaveDays = unpaidLeaveDays; // auto-absence ignored for pay
+  const leaveDeduction = totalLeaveDays * (monthlySalary / 30);
+  const taxableSalary = Math.max(0, basicPay - (totalLeaveDays * (basicPay / 30)));
+  const monthlyTax = calculateMonthlyTax(taxableSalary);
   const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
-  const netPay = salaryAfterTax + allowancePay + overtimePay;
+  const netPay = Math.max(0, monthlySalary - leaveDeduction - monthlyTax - earlyCheckoutDeduction + overtimePay);
 
   const downloadSalarySlip = () => {
     const monthKey = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}`;
     const slipId = `${user.employeeId}_${monthKey}`;
     const basicPay = Number(user.basicSalary) || 0;
     const allowancePay = Number(user.allowances) || 0;
+    const grossMonthly = basicPay + allowancePay;
+    const leaveDays = totalLeaveDays;
+    const leaveDeduction = leaveDays * (grossMonthly / 30);
+    const taxable = Math.max(0, basicPay - (leaveDays * (basicPay / 30)));
+    const tax = calculateMonthlyTax(taxable);
+    const net = Math.max(0, grossMonthly - leaveDeduction - tax - earlyCheckoutDeduction + overtimePay);
     const html = `<!doctype html>
       <html>
         <head>
@@ -998,16 +1002,16 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
               <tr><td>Basic Salary</td><td>${formatCurrency(basicPay)}</td></tr>
               <tr><td>Allowances</td><td>${formatCurrency(allowancePay)}</td></tr>
               <tr><th>Deductions</th><th>Amount</th></tr>
-              <tr><td>Unpaid Leave (${unpaidLeaveDays} days)</td><td>- ${formatCurrency(leaveDeduction)}</td></tr>
+              <tr><td>Unpaid Leave (${leaveDays} days)</td><td>- ${formatCurrency(leaveDeduction)}</td></tr>
               <tr><td>Early Checkout (${earlyCheckoutHoursThisMonth.toFixed(2)} hrs)</td><td>- ${formatCurrency(earlyCheckoutDeduction)}</td></tr>
               <tr><td>Absents (auto) (${absentDaysThisMonth} days)</td><td>Included</td></tr>
-              <tr><td>Tax (PK progressive)</td><td>- ${formatCurrency(monthlyTax)}</td></tr>
-              <tr><td class="total">Taxable Salary</td><td class="total">${formatCurrency(taxableSalary)}</td></tr>
-              <tr><td class="total">Salary After Tax</td><td class="total">${formatCurrency(salaryAfterTax)}</td></tr>
-              <tr><td class="total">Net Pay</td><td class="total">${formatCurrency(netPay)}</td></tr>
+              <tr><td>Tax (PK progressive)</td><td>- ${formatCurrency(tax)}</td></tr>
+              <tr><td class="total">Taxable Salary</td><td class="total">${formatCurrency(taxable)}</td></tr>
+              <tr><td class="total">Salary After Tax</td><td class="total">${formatCurrency(Math.max(0, taxable - tax))}</td></tr>
+              <tr><td class="total">Net Pay</td><td class="total">${formatCurrency(net)}</td></tr>
             </table>
             <div class="summary">
-              <div class="net">${formatCurrency(netPay)}</div>
+              <div class="net">${formatCurrency(net)}</div>
             </div>
           </div>
         </body>

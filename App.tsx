@@ -997,6 +997,12 @@ const App: React.FC = () => {
     return workingDays.includes(label);
   };
 
+  const isAutoAbsenceExempt = (employeeId?: string) => {
+    if (!employeeId) return false;
+    const exemptIds = ((APP_CONFIG as any).AUTO_ABSENCE_EXEMPT_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
+    return exemptIds.includes(normalizeEmployeeId(employeeId));
+  };
+
   const isWfhApprovedForUser = (targetUserId: string, dateStr: string) =>
     wfhRequests.some(req =>
       req.userId === targetUserId &&
@@ -1131,6 +1137,21 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (users.length === 0) return;
+    // Clean existing auto-absence leaves for exempt employees
+    const exemptIds = ((APP_CONFIG as any).AUTO_ABSENCE_EXEMPT_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
+    if (exemptIds.length > 0 && leaves.length > 0) {
+      const filtered = leaves.filter(l => {
+        if (!l.id.startsWith('auto-absence:')) return true;
+        const user = users.find(u => u.id === l.userId);
+        const empId = user?.employeeId ? normalizeEmployeeId(user.employeeId) : normalizeEmployeeId(l.userId || '');
+        return !exemptIds.includes(empId);
+      });
+      if (filtered.length !== leaves.length) {
+        setLeaves(filtered);
+        void saveLeaves(filtered);
+      }
+    }
+
     const todayStr = getLocalDateString(new Date());
     const targetDate = addDaysToDateString(todayStr, -1);
     if (!isWorkingDay(targetDate)) return;
@@ -1138,6 +1159,7 @@ const App: React.FC = () => {
     users
       .filter(u => u.role !== Role.SUPERADMIN)
       .forEach(target => {
+        if (isAutoAbsenceExempt(target.employeeId)) return;
         const monthKey = targetDate.slice(0, 7);
         const allowance = APP_CONFIG.ABSENCE_ALLOWANCE_PER_MONTH ?? 0;
         const autoAbsenceCount = leaves.filter(l =>
@@ -1294,6 +1316,10 @@ const App: React.FC = () => {
     const now = new Date();
     const shift = getShiftForEmployee(user.employeeId);
     const shiftDate = getShiftDateString(now, shift.start, shift.end);
+    if (!isWorkingDay(shiftDate)) {
+      setError('Check-in disabled on weekend/off day.');
+      return;
+    }
     const hasShiftRecord = records.some(r => r.date === shiftDate && matchesUserRecord(r, user));
     if (hasShiftRecord) {
       return;

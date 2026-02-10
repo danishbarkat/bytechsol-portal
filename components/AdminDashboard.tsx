@@ -800,10 +800,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const roleOptions = isSuperadmin
     ? Object.values(Role)
     : Object.values(Role).filter(r => r !== Role.SUPERADMIN && (!isHr || r !== Role.CEO));
+  // HR/CEO can generate slips for anyone; no self-only restriction
   const salarySlipSelfOnly = false;
-  const documentUsers = salarySlipSelfOnly
-    ? [user]
-    : sortedVisibleUsers;
+  const documentUsers = sortedVisibleUsers;
   const getShiftMetaForEmployee = (employeeId?: string, dateStr?: string) => {
     const shift = getShiftForEmployee(employeeId, dateStr);
     const [shiftStartHour, shiftStartMinute] = shift.start.split(':').map(Number);
@@ -878,12 +877,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   }, [attendancePage, totalAttendancePages]);
 
-  useEffect(() => {
-    if (!salarySlipSelfOnly) return;
-    if (selectedDocUserId !== user.id) {
-      handleDocumentUserSelect(user.id);
-    }
-  }, [salarySlipSelfOnly, selectedDocUserId, user.id, users]);
+  // No-op; self-only restriction disabled
 
   const getDisplayStatus = (record: AttendanceRecord) => {
     if (!record.checkIn) return record.status || 'On-Time';
@@ -1074,7 +1068,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       docForm,
       logoDataUrl || logoUrl,
       signatureDataUrl,
-      isSuperadmin || isCeo
+      isSuperadmin || isCeo || isHr
     ),
     [docType, docForm, logoDataUrl, signatureDataUrl, user.role]
   );
@@ -2192,10 +2186,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     name="documentEmployee"
                     value={selectedDocUserId}
                     onChange={e => handleDocumentUserSelect(e.target.value)}
-                    disabled={salarySlipSelfOnly}
-                    className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 disabled:opacity-60"
+                    className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"
                   >
-                    {!salarySlipSelfOnly && <option value="manual">Manual Entry</option>}
+                    <option value="manual">Manual Entry</option>
                     {documentUsers.map(emp => (
                       <option key={emp.id} value={emp.id}>{emp.name} ({emp.employeeId})</option>
                     ))}

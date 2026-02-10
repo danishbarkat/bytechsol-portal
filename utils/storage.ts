@@ -97,6 +97,15 @@ const mapUserToDb = (user: User) => ({
   position: user.position ?? null
 });
 
+export const upsertUserRemote = async (user: User) => {
+  if (!isSupabaseConfigured || !supabase) return;
+  const payload = mapUserToDb(user);
+  const { error } = await supabase.from('users').upsert(payload, { onConflict: 'id' });
+  if (error) {
+    logSupabaseError('upsertUserRemote', error);
+  }
+};
+
 const mapAttendanceFromDb = (row: Record<string, any>): AttendanceRecord => ({
   id: String(pickValue(row, ['id'], '')),
   userId: String(pickValue(row, ['user_id', 'userId', 'employee_id', 'employeeId'], '')),
@@ -127,6 +136,7 @@ const mapLeaveFromDb = (row: Record<string, any>): LeaveRequest => ({
   userName: String(pickValue(row, ['user_name', 'userName'], '')),
   startDate: String(pickValue(row, ['start_date', 'startDate'], '')),
   endDate: String(pickValue(row, ['end_date', 'endDate'], '')),
+  leaveType: pickValue(row, ['leave_type', 'leaveType'], undefined),
   reason: String(pickValue(row, ['reason'], '')),
   status: pickValue(row, ['status'], 'Pending'),
   submittedAt: String(pickValue(row, ['submitted_at', 'submittedAt'], '')),
@@ -139,6 +149,7 @@ const mapLeaveToDb = (leave: LeaveRequest) => ({
   user_name: leave.userName,
   start_date: leave.startDate,
   end_date: leave.endDate,
+  leave_type: leave.leaveType ?? null,
   reason: leave.reason,
   status: leave.status,
   submitted_at: leave.submittedAt,

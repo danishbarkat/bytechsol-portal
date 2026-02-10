@@ -330,6 +330,73 @@ const normalizeRecordUserIds = (list: AttendanceRecord[], userList: User[]) => {
   return { normalized, changed };
 };
 
+const syncRecordNames = (list: AttendanceRecord[], userList: User[]) => {
+  if (userList.length === 0) return { normalized: list, changed: false };
+  let changed = false;
+  const normalized = list.map(record => {
+    const user = userList.find(u => u.id === record.userId);
+    if (user && user.name && record.userName !== user.name) {
+      changed = true;
+      return { ...record, userName: user.name };
+    }
+    return record;
+  });
+  return { normalized, changed };
+};
+
+const resetLateStatuses = (list: AttendanceRecord[], userList: User[]): { normalized: AttendanceRecord[]; changed: boolean } => {
+  if (userList.length === 0) return { normalized: list, changed: false };
+  const resetIds = ((APP_CONFIG as any).LATE_RESET_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
+  if (resetIds.length === 0) return { normalized: list, changed: false };
+  let changed = false;
+  const normalized = list.map(record => {
+    if (record.status !== 'Late') return record;
+    const user = userList.find(u => u.id === record.userId);
+    const employeeId = user?.employeeId ? normalizeEmployeeId(user.employeeId) : normalizeEmployeeId(String(record.userId || ''));
+    if (!resetIds.includes(employeeId)) return record;
+    changed = true;
+    return { ...record, status: 'On-Time' };
+  });
+  return { normalized, changed };
+};
+
+const ensureAttendanceForUser = (
+  list: AttendanceRecord[],
+  user: User,
+  dates: string[]
+) => {
+  let changed = false;
+  const shift = getShiftForEmployee(user.employeeId);
+  const normalized = [...list];
+  dates.forEach(dateStr => {
+    const exists = normalized.some(r => {
+      const sameUser = (r.userId === user.id) ||
+        (user.employeeId && r.userId && normalizeEmployeeId(String(r.userId)) === normalizeEmployeeId(user.employeeId)) ||
+        (r.userName && normalizeName(r.userName) === normalizeName(user.name || ''));
+      return sameUser && r.date === dateStr;
+    });
+    if (exists) return;
+    const checkIn = buildZonedISOString(dateStr, shift.start);
+    const checkoutDate = addDaysToDateString(dateStr, 1);
+    const checkOut = buildZonedISOString(checkoutDate, shift.end);
+    const totalHours = computeTotalHours(checkIn, checkOut);
+    const overtimeHours = computeOvertimeHours(checkIn, checkOut, shift.start, shift.end, shift.overtimeEnd);
+    normalized.push({
+      id: `manual-${user.id}-${dateStr}`,
+      userId: user.id,
+      userName: user.name,
+      date: dateStr,
+      checkIn,
+      checkOut,
+      totalHours,
+      overtimeHours: overtimeHours > 0 ? overtimeHours : undefined,
+      status: 'On-Time'
+    });
+    changed = true;
+  });
+  return { normalized, changed };
+};
+
 const playNotificationSound = () => {
   try {
     const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
@@ -598,9 +665,37 @@ const App: React.FC = () => {
       const useMockDefaults = usersData.length === 0 || hasLegacyUsers;
       const baseUsers = useMockDefaults ? MOCK_USERS : usersData;
       const { merged, changed: coreChanged } = ensureCoreUsers(baseUsers);
-      setUsers(merged);
-      if (useMockDefaults || coreChanged) {
-        void saveUsers(merged);
+
+      const renameRules = [
+        {
+          test: (name: string) => /saliq\s*husanq/i.test(name) || /saliq\s*hussain/i.test(name),
+          nextName: 'Gunj Bux'
+        },
+        {
+          test: (name: string) => /hanan\s*bajwa/i.test(name),
+          nextName: 'Abdul Hanan Bajwa'
+        }
+      ];
+
+      let nameChanged = false;
+      const renamed = merged.map(u => {
+        const rule = renameRules.find(r => r.test(u.name || ''));
+        if (!rule) return u;
+        const parts = rule.nextName.split(' ');
+        const firstName = parts[0] || '';
+        const lastName = parts.slice(1).join(' ');
+        nameChanged = true;
+        return { ...u, name: rule.nextName, firstName, lastName };
+      });
+
+      setUsers(renamed);
+      if (useMockDefaults || coreChanged || nameChanged) {
+        void saveUsers(renamed);
+        renamed.forEach(u => {
+          if (u.employeeId) {
+            void adminUpsertUser(u).catch(console.error);
+          }
+        });
       }
     };
     init();
@@ -861,9 +956,29 @@ const App: React.FC = () => {
   useEffect(() => {
     if (users.length === 0 || records.length === 0) return;
     const { normalized, changed } = normalizeRecordUserIds(records, users);
-    if (changed) {
-      setRecords(normalized);
-      saveRecordsLocal(normalized);
+    let next = normalized;
+    let dirty = changed;
+    const nameSync = syncRecordNames(next, users);
+    if (nameSync.changed) {
+      next = nameSync.normalized;
+      dirty = true;
+    }
+    const lateReset = resetLateStatuses(next, users);
+    if (lateReset.changed) {
+      next = lateReset.normalized;
+      dirty = true;
+    }
+    const targetBajwa = users.find(u => normalizeName(u.name) === 'abdul hanan bajwa');
+    if (targetBajwa) {
+      const additions = ensureAttendanceForUser(next, targetBajwa, ['2026-02-06', '2026-02-10']);
+      if (additions.changed) {
+        next = additions.normalized;
+        dirty = true;
+      }
+    }
+    if (dirty) {
+      setRecords(next);
+      saveRecordsLocal(next);
     }
   }, [records, users]);
 
@@ -962,6 +1077,12 @@ const App: React.FC = () => {
       setRequestError('Reason is required.');
       return;
     }
+    const start = new Date(requestStartDate);
+    const diffDays = Math.floor((start.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 7) {
+      setRequestError('Leave should be applied at least 1 week prior.');
+      return;
+    }
     const result = resolveRequestUser();
     if ('error' in result) {
       setRequestError(result.error || 'Invalid request.');
@@ -970,21 +1091,25 @@ const App: React.FC = () => {
     const targetUser = result.user;
     const safeStart = requestStartDate <= requestEndDate ? requestStartDate : requestEndDate;
     const safeEnd = requestStartDate <= requestEndDate ? requestEndDate : requestStartDate;
-    const leaveMonth = new Date(safeStart);
-    const paidLeavesThisMonth = leaves.filter(l =>
+    const leaveType: LeaveRequest['leaveType'] = 'Annual';
+    const leaveYear = new Date(safeStart).getFullYear();
+    const quota = (APP_CONFIG as any).LEAVE_QUOTA || { annual: 7 };
+    const usedAnnual = leaves.filter(l =>
       l.userId === targetUser.id &&
       !l.id.startsWith('auto-absence:') &&
-      (l.isPaid ?? true) &&
       l.status === 'Approved' &&
-      isSameMonth(l.startDate, leaveMonth)
+      (l.leaveType || 'Annual').toLowerCase() === 'annual' &&
+      (l.startDate || '').startsWith(String(leaveYear))
     ).length;
-    const isPaid = paidLeavesThisMonth < 1;
+    const remainingAnnual = Math.max(0, (quota.annual ?? 7) - usedAnnual);
+    const isPaid = remainingAnnual > 0;
     const newLeave: LeaveRequest = {
       id: Math.random().toString(36).substr(2, 9),
       userId: targetUser.id,
       userName: targetUser.name,
       startDate: safeStart,
       endDate: safeEnd,
+      leaveType,
       reason,
       status: 'Pending',
       submittedAt: new Date().toISOString(),
@@ -1233,11 +1358,11 @@ const App: React.FC = () => {
   }, [user, records]);
 
   const handleLeaveAction = (leaveId: string, action: 'Approved' | 'Rejected') => {
-    if (user?.role !== Role.CEO && user?.role !== Role.SUPERADMIN) return;
+    if (user?.role !== Role.CEO && user?.role !== Role.SUPERADMIN && user?.role !== Role.HR) return;
     const targetLeave = leaves.find(l => l.id === leaveId);
     const updated = leaves.map(l => l.id === leaveId ? { ...l, status: action } : l);
     setLeaves(updated);
-    if (user?.role === Role.CEO || user?.role === Role.SUPERADMIN) {
+    if (user?.role === Role.CEO || user?.role === Role.SUPERADMIN || user?.role === Role.HR) {
       const leaveToUpdate = updated.find(l => l.id === leaveId);
       if (leaveToUpdate) {
         void adminUpsertLeave(leaveToUpdate).catch(console.error);
@@ -1325,17 +1450,46 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSubmitLeave = (startDate: string, endDate: string, reason: string) => {
-    if (!user) return;
-    const leaveMonth = new Date(startDate);
-    const paidLeavesThisMonth = leaves.filter(l =>
-      l.userId === user.id &&
-      !l.id.startsWith('auto-absence:') &&
-      (l.isPaid ?? true) &&
-      l.status === 'Approved' &&
-      isSameMonth(l.startDate, leaveMonth)
-    ).length;
-    const isPaid = paidLeavesThisMonth < 1;
+const handleSubmitLeave = (
+  startDate: string,
+  endDate: string,
+  reason: string,
+  leaveType: LeaveRequest['leaveType'] = 'Annual',
+  isPaidOverride?: boolean
+) => {
+  if (!user) return;
+  const today = new Date();
+  const start = new Date(startDate);
+    const diffDays = Math.floor((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 7) {
+    window.alert('Leave should be applied at least 1 week prior.');
+    return;
+  }
+  const quota = (APP_CONFIG as any).LEAVE_QUOTA || { annual: 7, sick: 9, casual: 6, total: 22 };
+  const leaveTypeKey = (leaveType || 'Annual').toLowerCase();
+  const leaveYear = start.getFullYear();
+  const usedByType = leaves.filter(l =>
+    l.userId === user.id &&
+    l.status === 'Approved' &&
+    !l.id.startsWith('auto-absence:') &&
+    (l.leaveType || 'Annual').toLowerCase() === leaveTypeKey &&
+    (l.startDate || '').startsWith(String(leaveYear))
+  ).length;
+  const remainingByType = {
+    annual: Math.max(0, (quota.annual ?? 0) - (leaveTypeKey === 'annual' ? usedByType : 0)),
+    sick: Math.max(0, (quota.sick ?? 0) - (leaveTypeKey === 'sick' ? usedByType : 0)),
+    casual: Math.max(0, (quota.casual ?? 0) - (leaveTypeKey === 'casual' ? usedByType : 0))
+  };
+  const typeRemaining = leaveTypeKey === 'annual'
+    ? remainingByType.annual
+    : leaveTypeKey === 'sick'
+      ? remainingByType.sick
+      : leaveTypeKey === 'casual'
+        ? remainingByType.casual
+        : 0;
+  const isPaid = typeof isPaidOverride === 'boolean'
+    ? isPaidOverride && leaveType !== 'Unpaid'
+    : leaveType !== 'Unpaid' && typeRemaining > 0;
     const newLeave: LeaveRequest = {
       id: Math.random().toString(36).substr(2, 9),
       userId: user.id,
@@ -1343,6 +1497,7 @@ const App: React.FC = () => {
       startDate,
       endDate,
       reason,
+      leaveType,
       status: 'Pending',
       submittedAt: new Date().toISOString(),
       isPaid
@@ -1457,9 +1612,14 @@ const App: React.FC = () => {
       void saveUsers(updated);
       return updated;
     });
-    if (user?.role === Role.SUPERADMIN) {
-      void adminUpsertUser(newUser).catch(console.error);
-    }
+    void (async () => {
+      try {
+        await adminUpsertUser(newUser);
+      } catch (err) {
+        console.error(err);
+        await upsertUserRemote(newUser);
+      }
+    })();
   };
 
   const handleUpdateUser = (updatedUser: User) => {
@@ -1474,10 +1634,16 @@ const App: React.FC = () => {
     if (user?.id === updatedUser.id) {
       setUser(updatedUser);
     }
-    if (user?.role === Role.SUPERADMIN) {
-      void adminUpsertUser(updatedUser).catch(console.error);
-    } else if (updatedUser.employeeId) {
-      void updateCredentialsByEmployeeId(updatedUser.employeeId, updatedUser.password, updatedUser.pin ?? null);
+    if (updatedUser.employeeId) {
+      void (async () => {
+        try {
+          await adminUpsertUser(updatedUser);
+        } catch (err) {
+          console.error(err);
+          await upsertUserRemote(updatedUser);
+          await updateCredentialsByEmployeeId(updatedUser.employeeId, updatedUser.password, updatedUser.pin ?? null);
+        }
+      })();
     }
   };
 

@@ -164,7 +164,7 @@ interface EmployeeDashboardProps {
   onUpdateRecord: (record: AttendanceRecord) => void;
   isWifiConnected: boolean;
   isCheckinOverride?: boolean;
-  onSubmitLeave: (start: string, end: string, reason: string) => void;
+  onSubmitLeave: (start: string, end: string, reason: string, leaveType?: LeaveRequest['leaveType'], isPaid?: boolean) => void;
   onSubmitWfhRequest: (reason: string, startDate: string, endDate: string) => void;
   onUpdateESS: (profile: ESSProfile) => void;
   onUpdateChecklist: (checklist: UserChecklist) => void;
@@ -209,6 +209,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [leaveApplication, setLeaveApplication] = useState(buildLeaveTemplate(user));
   const [leaveStartDate, setLeaveStartDate] = useState(() => getLocalDateString(new Date()));
   const [leaveEndDate, setLeaveEndDate] = useState(() => getLocalDateString(new Date()));
+  const [leaveType, setLeaveType] = useState<'Annual' | 'Sick' | 'Casual' | 'Unpaid'>('Annual');
+  const [leavePaid, setLeavePaid] = useState(true);
   const [wfhReason, setWfhReason] = useState('');
   const [wfhStartDate, setWfhStartDate] = useState(() => getLocalDateString(new Date()));
   const [wfhEndDate, setWfhEndDate] = useState(() => getLocalDateString(new Date()));
@@ -621,6 +623,21 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const myLeaves = leaves
     .filter(l => matchesUser(l.userId, l.userName) && !l.id.startsWith('auto-absence:'))
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+  const currentYear = new Date().getFullYear();
+  const usedByType = myLeaves.reduce<Record<string, number>>((acc, leave) => {
+    if (leave.status !== 'Approved') return acc;
+    const year = Number((leave.startDate || '').slice(0, 4));
+    if (year !== currentYear) return acc;
+    const typeKey = (leave.leaveType || 'Annual').toLowerCase();
+    acc[typeKey] = (acc[typeKey] || 0) + 1;
+    return acc;
+  }, {});
+  const leaveQuota = (APP_CONFIG as any).LEAVE_QUOTA || { annual: 7, sick: 9, casual: 6, total: 22 };
+  const remainingByType = {
+    annual: Math.max(0, (leaveQuota.annual ?? 0) - (usedByType['annual'] || 0)),
+    sick: Math.max(0, (leaveQuota.sick ?? 0) - (usedByType['sick'] || 0)),
+    casual: Math.max(0, (leaveQuota.casual ?? 0) - (usedByType['casual'] || 0))
+  };
   const myWfhRequests = wfhRequests
     .filter(r => matchesUser(r.userId, r.userName))
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
@@ -631,7 +648,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const weeklyOT = calculateWeeklyOvertime(user.id, records);
   const workMode = user.workMode || 'Onsite';
   const canTrack = workMode === 'Remote' || isWifiConnected || isWfhToday || isCheckinOverride;
-  const salaryHidden = Boolean(user.salaryHidden);
+  const canViewSalary = user.role !== Role.EMPLOYEE;
+  const salaryHidden = Boolean(user.salaryHidden || !canViewSalary);
   const employeeRecords = records.filter(r => {
     if (r.userId === user.id) return true;
     if (r.userId && normalizedEmployeeId) {
@@ -712,19 +730,21 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     ? (currentTime.getTime() - new Date(activeRecord.checkIn).getTime()) / 1000
     : 0;
   const lateAllowance = 3;
-  const lateCountThisMonth = records.filter(r => matchesUserRecord(r) && r.status === 'Late' && isSameMonth(r.date, currentTime)).length;
+  const lateResetIds = ((APP_CONFIG as any).LATE_RESET_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
+  const lateCountThisMonthRaw = records.filter(r => matchesUserRecord(r) && r.status === 'Late' && isSameMonth(r.date, currentTime)).length;
+  const lateCountThisMonth = lateResetIds.includes(normalizedEmployeeId || '') ? 0 : lateCountThisMonthRaw;
   const lateRemaining = Math.max(0, lateAllowance - lateCountThisMonth);
+  const basicPay = Number(user.basicSalary) || 0;
+  const allowancePay = Number(user.allowances) || 0;
   const monthlySalary = calculateTotalSalary(user.basicSalary, user.allowances, user.homeAllowance, user.travelAllowance, user.internetAllowance, user.salary);
   const dailySalary = monthlySalary ? Math.round(monthlySalary / 30) : null;
-  const paidLeavesThisMonth = leaves.filter(
-    l =>
-      matchesUser(l.userId, l.userName) &&
-      !l.id.startsWith('auto-absence:') &&
-      (l.isPaid ?? true) &&
-      l.status === 'Approved' &&
-      isSameMonth(l.startDate, currentTime)
-  ).length;
-  const paidLeaveRemaining = Math.max(0, 1 - paidLeavesThisMonth);
+  const selectedRemaining = leaveType === 'Unpaid'
+    ? 0
+    : leaveType === 'Annual'
+      ? remainingByType.annual
+      : leaveType === 'Sick'
+        ? remainingByType.sick
+        : remainingByType.casual;
   const {
     startMinutes: shiftStartMinutes,
     endMinutesRaw,
@@ -938,12 +958,12 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const unpaidLeaveDays = leaves
     .filter(l => matchesUser(l.userId, l.userName) && l.status === 'Approved' && l.isPaid === false && isSameMonth(l.startDate, monthDate))
     .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, monthDate), 0);
-  const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
-  const baseAfterLeave = Math.max(0, monthlySalary - leaveDeduction);
+  const leaveDeduction = unpaidLeaveDays * (basicPay / 30);
+  const baseAfterLeave = Math.max(0, basicPay - leaveDeduction);
   const taxableSalary = Math.max(0, baseAfterLeave - earlyCheckoutDeduction);
-  const monthlyTax = calculateMonthlyTax(user.basicSalary || 0);
+  const monthlyTax = calculateMonthlyTax(basicPay);
   const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
-  const netPay = salaryAfterTax + overtimePay;
+  const netPay = salaryAfterTax + allowancePay + overtimePay;
 
   const downloadSalarySlip = () => {
     const monthKey = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}`;
@@ -1321,26 +1341,74 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                       />
                     </div>
                   </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Leave Type</label>
+                      <select
+                        value={leaveType}
+                        onChange={e => {
+                          const value = e.target.value as 'Annual' | 'Sick' | 'Casual' | 'Unpaid';
+                          setLeaveType(value);
+                          if (value === 'Unpaid') setLeavePaid(false);
+                        }}
+                        className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none"
+                      >
+                        <option value="Annual">Annual (remaining {remainingByType.annual})</option>
+                        <option value="Sick">Sick (remaining {remainingByType.sick})</option>
+                        <option value="Casual">Casual (remaining {remainingByType.casual})</option>
+                        <option value="Unpaid">Unpaid</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Leave With Pay?</label>
+                      <div className="flex items-center gap-3 bg-slate-50 border-2 border-transparent focus-within:border-blue-500 p-4 rounded-2xl">
+                        <input
+                          id="leave-paid"
+                          type="checkbox"
+                          checked={leavePaid}
+                          onChange={e => setLeavePaid(e.target.checked)}
+                          className="w-4 h-4"
+                          disabled={leaveType === 'Unpaid'}
+                        />
+                        <label htmlFor="leave-paid" className="text-xs font-bold text-slate-600">
+                          {leaveType === 'Unpaid' ? 'Unpaid selected' : 'Leave with pay (P/LWP)'}
+                        </label>
+                      </div>
+                    </div>
+                  </div>
                   <div className="space-y-1">
                     <label htmlFor="leave-application" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Leave Application (Template)</label>
                     <textarea id="leave-application" name="leaveApplication" value={leaveApplication} onChange={e => setLeaveApplication(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-blue-500 p-4 rounded-2xl text-xs font-bold outline-none h-40 resize-none" />
                   </div>
                   <div className="space-y-1">
-                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Paid leave remaining this month: {paidLeaveRemaining}</p>
-                    {paidLeaveRemaining === 0 && (
+                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+                      Remaining {leaveType}: {selectedRemaining}
+                    </p>
+                    {selectedRemaining === 0 && leaveType !== 'Unpaid' && (
                       <p className="text-[11px] font-black text-amber-600 uppercase tracking-widest">This request will be unpaid</p>
                     )}
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                      Annual {leaveQuota.annual ?? 7} • Sick {leaveQuota.sick ?? 9} • Casual {leaveQuota.casual ?? 6} • Total 22
+                    </p>
                   </div>
                   <button
                     onClick={() => {
                       if (!leaveStartDate || !leaveEndDate) return;
                       const safeStart = leaveStartDate <= leaveEndDate ? leaveStartDate : leaveEndDate;
                       const safeEnd = leaveStartDate <= leaveEndDate ? leaveEndDate : leaveStartDate;
-                      onSubmitLeave(safeStart, safeEnd, leaveApplication);
+                      const start = new Date(safeStart);
+                      const diffDays = Math.floor((start.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                      if (diffDays < 7) {
+                        alert('Leave should be applied at least 1 week prior.');
+                        return;
+                      }
+                      const willBePaid = leaveType !== 'Unpaid' && leavePaid && selectedRemaining > 0;
+                      onSubmitLeave(safeStart, safeEnd, leaveApplication, leaveType, willBePaid);
                       const todayStr = getLocalDateString(new Date());
                       setLeaveStartDate(todayStr);
                       setLeaveEndDate(todayStr);
                       setLeaveApplication(buildLeaveTemplate(user));
+                      setLeavePaid(true);
                     }}
                     className="w-full premium-gradient text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl"
                   >
@@ -1415,7 +1483,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                       <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">{l.startDate} - {l.endDate}</span>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : l.status === 'Cancelled' ? 'bg-slate-100 text-slate-500' : 'bg-rose-50 text-rose-600'}`}>{l.status}</span>
-                        <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest ${l.isPaid === false ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}>{l.isPaid === false ? 'Unpaid' : 'Paid'}</span>
+                        <span className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest bg-slate-50 text-slate-700 border border-slate-100">{l.leaveType || 'Annual'}</span>
+                        <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest ${l.isPaid === false ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-600'}`}>{l.isPaid === false ? 'L/WP (Unpaid)' : 'Leave with Pay'}</span>
                         {l.status === 'Pending' && (
                           <button
                             type="button"
@@ -1637,18 +1706,22 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
               </div>
             </div>
             <div className="lg:col-span-4 space-y-6">
+              {canViewSalary && (
+              <>
               <div className="rounded-[3rem] p-6 sm:p-8 2xl:p-10 bg-blue-600 text-white shadow-blue-200 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-white/10 blur-[60px] rounded-full" />
                 <div className="relative z-10">
                   <div className="flex items-start justify-between gap-4">
                     <p className="text-[11px] font-black uppercase tracking-[0.2em] text-white/70">Monthly Compensation</p>
-                    <button
-                      type="button"
-                      onClick={() => onUpdateUser({ ...user, salaryHidden: !salaryHidden })}
-                      className="text-[11px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 transition-all text-white"
-                    >
-                      {salaryHidden ? 'Show Salary' : 'Hide Salary'}
-                    </button>
+                    {canViewSalary && (
+                      <button
+                        type="button"
+                        onClick={() => onUpdateUser({ ...user, salaryHidden: !salaryHidden })}
+                        className="text-[11px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 transition-all text-white"
+                      >
+                        {salaryHidden ? 'Show Salary' : 'Hide Salary'}
+                      </button>
+                    )}
                   </div>
                   <h2 className="text-4xl font-black mt-2">{salaryHidden ? 'Hidden' : `PKR ${monthlySalary.toLocaleString()}`}</h2>
                   <div className="mt-6 pt-6 border-t border-white/10 flex items-center justify-between">
@@ -1749,6 +1822,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                 </div>
                 <p className="mt-6 text-[11px] font-bold text-slate-400 uppercase text-center">Digitized Filing Cabinet v1.0</p>
               </div>
+              </>
+              )}
 
               <div className="glass-card rounded-[3rem] p-6 sm:p-8 2xl:p-10">
                 <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6">Security Key</h3>

@@ -521,7 +521,7 @@ interface AdminDashboardProps {
   onAddUser: (user: User) => void;
   onUpdateUser: (user: User) => void;
   onDeleteUser: (userId: string) => void;
-  onSubmitLeave: (start: string, end: string, reason: string) => void;
+  onSubmitLeave: (start: string, end: string, reason: string, leaveType?: LeaveRequest['leaveType'], isPaid?: boolean) => void;
   onWfhAction: (id: string, action: 'Approved' | 'Rejected') => void;
   onUpdateESS: (profile: ESSProfile) => void;
   tasks: Task[];
@@ -592,6 +592,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [leaveApplication, setLeaveApplication] = useState(buildLeaveTemplate(user));
   const [leaveStartDate, setLeaveStartDate] = useState(() => getLocalDateString(new Date()));
   const [leaveEndDate, setLeaveEndDate] = useState(() => getLocalDateString(new Date()));
+  const [leaveType, setLeaveType] = useState<'Annual' | 'Sick' | 'Casual' | 'Unpaid'>('Annual');
+  const [leavePaid, setLeavePaid] = useState(true);
   const [attendanceDateFilter, setAttendanceDateFilter] = useState('');
   const attendanceDateRef = useRef<HTMLInputElement | null>(null);
   const [attendanceMonthFilter, setAttendanceMonthFilter] = useState(() => {
@@ -682,7 +684,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const canEditTime = isSuperadmin || isTimeEditor;
   const canDeleteUsers = isSuperadmin || isCeo;
   const canResetPassword = Boolean(editingUser && editingUser.role !== Role.SUPERADMIN);
-  const visibleUsers = users;
+  const visibleUsers = isSuperadmin ? users : users.filter(u => u.role !== Role.SUPERADMIN);
   const rosterAvailable = visibleUsers.length > 0;
   const sortedVisibleUsers = [...visibleUsers].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   const workforceUsers = sortedVisibleUsers;
@@ -717,6 +719,28 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const visibleLeaves = isSuperadmin || isCeo || !rosterAvailable ? leaves : leaves.filter(isLeaveVisible);
   const visibleLeaveRequests = visibleLeaves.filter(l => !l.id.startsWith('auto-absence:'));
   const visibleWfh = isSuperadmin || isCeo || !rosterAvailable ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));
+  const leaveQuota = (APP_CONFIG as any).LEAVE_QUOTA || { annual: 7, sick: 9, casual: 6, total: 22 };
+  const currentYear = new Date().getFullYear();
+  const myLeaveUsage = visibleLeaves.reduce<Record<string, number>>((acc, l) => {
+    if (l.userId !== user.id) return acc;
+    if (l.status !== 'Approved') return acc;
+    if (!l.startDate.startsWith(String(currentYear))) return acc;
+    const key = (l.leaveType || 'Annual').toLowerCase();
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const myRemainingByType = {
+    annual: Math.max(0, (leaveQuota.annual ?? 0) - (myLeaveUsage['annual'] || 0)),
+    sick: Math.max(0, (leaveQuota.sick ?? 0) - (myLeaveUsage['sick'] || 0)),
+    casual: Math.max(0, (leaveQuota.casual ?? 0) - (myLeaveUsage['casual'] || 0))
+  };
+  const selectedRemaining = leaveType === 'Unpaid'
+    ? 0
+    : leaveType === 'Annual'
+      ? myRemainingByType.annual
+      : leaveType === 'Sick'
+        ? myRemainingByType.sick
+        : myRemainingByType.casual;
   const overtimeUsers = rosterAvailable
     ? sortedVisibleUsers
     : Array.from(
@@ -771,12 +795,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const monthSummaryLabel = new Date(`${effectiveMonthFilter}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const monthTotalHours = monthlyAttendance.reduce((sum, r) => sum + (r.totalHours || 0), 0);
   const monthOvertimeHours = monthlyAttendance.reduce((sum, r) => sum + (r.overtimeHours || 0), 0);
-  const canApprove = user.role === Role.CEO || user.role === Role.SUPERADMIN;
+  const canApprove = user.role === Role.CEO || user.role === Role.SUPERADMIN || user.role === Role.HR;
   const isExecutive = user.role === Role.CEO || user.role === Role.SUPERADMIN;
   const roleOptions = isSuperadmin
     ? Object.values(Role)
     : Object.values(Role).filter(r => r !== Role.SUPERADMIN && (!isHr || r !== Role.CEO));
-  const salarySlipSelfOnly = isHr && docType === 'salary-slip';
+  const salarySlipSelfOnly = false;
   const documentUsers = salarySlipSelfOnly
     ? [user]
     : sortedVisibleUsers;
@@ -1775,19 +1799,71 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <input id="admin-leave-end" name="leaveEndDate" type="date" value={leaveEndDate} onChange={e => setLeaveEndDate(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
                 </div>
                 <div className="space-y-1">
+                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Leave Type</label>
+                  <select
+                    value={leaveType}
+                    onChange={e => {
+                      const value = e.target.value as 'Annual' | 'Sick' | 'Casual' | 'Unpaid';
+                      setLeaveType(value);
+                      if (value === 'Unpaid') setLeavePaid(false);
+                    }}
+                    className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800"
+                  >
+                    <option value="Annual">Annual (remaining {myRemainingByType.annual})</option>
+                    <option value="Sick">Sick (remaining {myRemainingByType.sick})</option>
+                    <option value="Casual">Casual (remaining {myRemainingByType.casual})</option>
+                    <option value="Unpaid">Unpaid</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Leave With Pay?</label>
+                  <div className="flex items-center gap-3 bg-slate-50 border-2 border-transparent p-4 rounded-2xl">
+                    <input
+                      id="admin-leave-paid"
+                      type="checkbox"
+                      checked={leavePaid}
+                      onChange={e => setLeavePaid(e.target.checked)}
+                      disabled={leaveType === 'Unpaid'}
+                      className="w-4 h-4"
+                    />
+                    <label htmlFor="admin-leave-paid" className="text-xs font-bold text-slate-600">
+                      {leaveType === 'Unpaid' ? 'Unpaid selected' : 'Leave with pay (P/LWP)'}
+                    </label>
+                  </div>
+                  <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+                    Remaining {leaveType}: {selectedRemaining}
+                  </p>
+                  {selectedRemaining === 0 && leaveType !== 'Unpaid' && (
+                    <p className="text-[11px] font-black text-amber-600 uppercase tracking-widest">This request will be unpaid</p>
+                  )}
+                </div>
+                <div className="space-y-1">
                   <label htmlFor="admin-leave-reason" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Leave Application</label>
                   <textarea id="admin-leave-reason" name="leaveReason" value={leaveApplication} onChange={e => setLeaveApplication(e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800 h-24 resize-none" />
                 </div>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                  Quota: Annual {leaveQuota.annual ?? 7} • Sick {leaveQuota.sick ?? 9} • Casual {leaveQuota.casual ?? 6} • Total 22
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => {
                   if (!leaveStartDate || !leaveEndDate) return;
-                  onSubmitLeave(leaveStartDate, leaveEndDate, leaveApplication);
+                  const safeStart = leaveStartDate <= leaveEndDate ? leaveStartDate : leaveEndDate;
+                  const safeEnd = leaveStartDate <= leaveEndDate ? leaveEndDate : leaveStartDate;
+                  const start = new Date(safeStart);
+                  const diffDays = Math.floor((start.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                  if (diffDays < 7) {
+                    alert('Leave should be applied at least 1 week prior.');
+                    return;
+                  }
+                  const willBePaid = leaveType !== 'Unpaid' && leavePaid && selectedRemaining > 0;
+                  onSubmitLeave(safeStart, safeEnd, leaveApplication, leaveType, willBePaid);
                   const today = getLocalDateString(new Date());
                   setLeaveStartDate(today);
                   setLeaveEndDate(today);
                   setLeaveApplication(buildLeaveTemplate(user));
+                  setLeavePaid(true);
                 }}
                 className="mt-6 w-full premium-gradient text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl"
               >
@@ -1813,13 +1889,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-500 font-black text-sm shadow-sm group-hover:scale-105 transition-transform">
                       {toInitials(l.userName)}
                     </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-3">
-                        <span className="font-black text-lg text-slate-900 leading-none">{l.userName}</span>
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>{l.status}</span>
-                      </div>
-                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{l.startDate} → {l.endDate}</p>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-lg text-slate-900 leading-none">{l.userName}</span>
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${l.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' : l.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>{l.status}</span>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm bg-slate-50 text-slate-700 border border-slate-100">{l.leaveType || 'Annual'}</span>
                     </div>
+                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{l.startDate} → {l.endDate}</p>
+                  </div>
                   </div>
 
                   <div className="flex-1 max-w-md">
@@ -1827,7 +1904,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3">
-                    <span className={`px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest border ${l.isPaid === false ? 'bg-slate-50 text-slate-500 border-slate-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>{l.isPaid === false ? 'Unpaid' : 'Paid Leave'}</span>
+                    <span className="px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest border bg-slate-50 text-slate-700 border-slate-100">{l.leaveType || 'Annual'}</span>
+                    <span className={`px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest border ${l.isPaid === false ? 'bg-slate-50 text-slate-500 border-slate-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>{l.isPaid === false ? 'L/WP (Unpaid)' : 'Leave with Pay'}</span>
                     {l.status === 'Pending' && (
                       <div className="flex gap-2">
                         {canApprove ? (

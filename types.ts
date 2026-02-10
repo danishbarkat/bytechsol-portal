@@ -54,6 +54,7 @@ export interface LeaveRequest {
   userName: string;
   startDate: string;
   endDate: string;
+  leaveType?: 'Annual' | 'Sick' | 'Casual' | 'Unpaid';
   reason: string;
   status: LeaveStatus;
   submittedAt: string;

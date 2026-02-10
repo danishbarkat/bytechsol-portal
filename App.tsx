@@ -533,6 +533,15 @@ const ensureCoreUsers = (list: User[]) => {
   return { merged, changed };
 };
 
+const getLeaveLengthDays = (startDate: string, endDate: string) => {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return 0;
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const diff = Math.abs(end.getTime() - start.getTime());
+  return Math.floor(diff / msPerDay) + 1;
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [employeeIdInput, setEmployeeIdInput] = useState('');
@@ -877,7 +886,7 @@ const App: React.FC = () => {
         saveRecordsLocal(normalized);
       }
     };
-    const refreshLeaves = async () => {
+  const refreshLeaves = async () => {
       if (user?.role === Role.CEO || user?.role === Role.SUPERADMIN) {
         try {
           const response = await adminFetchLeaves();
@@ -887,8 +896,14 @@ const App: React.FC = () => {
           console.error(err);
         }
       }
-      const data = await fetchLeavesRemote();
-      if (active) setLeaves(data);
+      const remote = await fetchLeavesRemote();
+      const local = await loadLeaves();
+      const mergedMap = new Map<string, LeaveRequest>();
+      [...local, ...remote].forEach(l => {
+        mergedMap.set(l.id, l);
+      });
+      const merged = Array.from(mergedMap.values());
+      if (active) setLeaves(merged);
     };
     const refreshWfh = async () => {
       if (user?.role === Role.CEO || user?.role === Role.SUPERADMIN) {
@@ -1065,8 +1080,10 @@ const App: React.FC = () => {
     };
     const updated = [...wfhRequests, newRequest];
     setWfhRequests(updated);
+    void saveWfhRequests(updated);
     setRequestSubmitting(true);
     Promise.resolve(adminUpsertWfhRequest(newRequest))
+      .then(() => saveWfhRequests(updated))
       .catch(err => {
         console.error(err);
         return saveWfhRequests(updated);
@@ -1084,10 +1101,14 @@ const App: React.FC = () => {
       setRequestError('Reason is required.');
       return;
     }
-    const start = new Date(requestStartDate);
-    const diffDays = Math.floor((start.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    if (diffDays < 7) {
-      setRequestError('Leave should be applied at least 1 week prior.');
+    const safeStart = requestStartDate <= requestEndDate ? requestStartDate : requestEndDate;
+    const safeEnd = requestStartDate <= requestEndDate ? requestEndDate : requestStartDate;
+    const start = new Date(safeStart);
+    const noticeDays = Math.floor((start.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    const leaveLength = getLeaveLengthDays(safeStart, safeEnd);
+    const needsWeekNotice = leaveLength > 2;
+    if (needsWeekNotice && noticeDays < 7) {
+      setRequestError('Leaves longer than 2 days must be applied at least 1 week prior.');
       return;
     }
     const result = resolveRequestUser();
@@ -1096,8 +1117,6 @@ const App: React.FC = () => {
       return;
     }
     const targetUser = result.user;
-    const safeStart = requestStartDate <= requestEndDate ? requestStartDate : requestEndDate;
-    const safeEnd = requestStartDate <= requestEndDate ? requestEndDate : requestStartDate;
     const leaveType: LeaveRequest['leaveType'] = 'Annual';
     const leaveYear = new Date(safeStart).getFullYear();
     const quota = (APP_CONFIG as any).LEAVE_QUOTA || { annual: 7 };
@@ -1124,8 +1143,10 @@ const App: React.FC = () => {
     };
     const updated = [...leaves, newLeave];
     setLeaves(updated);
+    void saveLeaves(updated); // immediate local persistence
     setRequestSubmitting(true);
     Promise.resolve(adminUpsertLeave(newLeave))
+      .then(() => saveLeaves(updated))
       .catch(err => {
         console.error(err);
         return saveLeaves(updated);
@@ -1426,9 +1447,11 @@ const App: React.FC = () => {
     };
     const updated = [...wfhRequests, newRequest];
     setWfhRequests(updated);
+    void saveWfhRequests(updated);
     void (async () => {
       try {
         await adminUpsertWfhRequest(newRequest);
+        await saveWfhRequests(updated);
       } catch (err) {
         console.error(err);
         await saveWfhRequests(updated);
@@ -1477,24 +1500,27 @@ const App: React.FC = () => {
     }
   };
 
-const handleSubmitLeave = (
-  startDate: string,
-  endDate: string,
-  reason: string,
-  leaveType: LeaveRequest['leaveType'] = 'Annual',
-  isPaidOverride?: boolean
-) => {
-  if (!user) return;
-  const today = new Date();
-  const start = new Date(startDate);
-    const diffDays = Math.floor((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays < 7) {
-    window.alert('Leave should be applied at least 1 week prior.');
-    return;
-  }
-  const quota = (APP_CONFIG as any).LEAVE_QUOTA || { annual: 7, sick: 9, casual: 6, total: 22 };
-  const leaveTypeKey = (leaveType || 'Annual').toLowerCase();
-  const leaveYear = start.getFullYear();
+  const handleSubmitLeave = (
+    startDate: string,
+    endDate: string,
+    reason: string,
+    leaveType: LeaveRequest['leaveType'] = 'Annual',
+    isPaidOverride?: boolean
+  ) => {
+    if (!user) return;
+    const today = new Date();
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const noticeDays = Math.floor((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const leaveLength = getLeaveLengthDays(startDate, endDate);
+    const needsWeekNotice = leaveLength > 2;
+    if (needsWeekNotice && noticeDays < 7) {
+      window.alert('Leaves longer than 2 days must be applied at least 1 week prior.');
+      return;
+    }
+    const quota = (APP_CONFIG as any).LEAVE_QUOTA || { annual: 7, sick: 9, casual: 6, total: 22 };
+    const leaveTypeKey = (leaveType || 'Annual').toLowerCase();
+    const leaveYear = start.getFullYear();
   const usedByType = leaves.filter(l =>
     l.userId === user.id &&
     l.status === 'Approved' &&
@@ -1531,12 +1557,12 @@ const handleSubmitLeave = (
     };
     const updated = [...leaves, newLeave];
     setLeaves(updated);
+    void saveLeaves(updated); // persist immediately for UI
     void (async () => {
       try {
         await adminUpsertLeave(newLeave);
       } catch (err) {
         console.error(err);
-        await saveLeaves(updated);
       }
     })();
     const ceoUsers = users.filter(u => u.role === Role.CEO);
@@ -1559,6 +1585,62 @@ const handleSubmitLeave = (
       void saveLeaves(updated);
       return updated;
     });
+    const target = leaves.find(l => l.id === leaveId);
+    if (target) {
+      void (async () => {
+        try {
+          await adminUpsertLeave({ ...target, status: 'Cancelled' });
+        } catch (err) {
+          console.error(err);
+        }
+      })();
+    }
+  };
+
+  const handleCancelWfh = (requestId: string) => {
+    setWfhRequests(prev => {
+      const updated = prev.map(r => r.id === requestId ? { ...r, status: 'Cancelled' as const } : r);
+      void saveWfhRequests(updated);
+      return updated;
+    });
+    const target = wfhRequests.find(r => r.id === requestId);
+    if (target) {
+      void adminUpsertWfhRequest({ ...target, status: 'Cancelled' }).catch(console.error);
+    }
+  };
+
+  const handleDeleteLeave = (leaveId: string) => {
+    setLeaves(prev => {
+      const updated = prev.filter(l => l.id !== leaveId);
+      void saveLeaves(updated);
+      return updated;
+    });
+    void (async () => {
+      try {
+        if (isSupabaseConfigured && supabase) {
+          await supabase.from('leave_requests').delete().eq('id', leaveId);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    })();
+  };
+
+  const handleDeleteWfh = (requestId: string) => {
+    setWfhRequests(prev => {
+      const updated = prev.filter(r => r.id !== requestId);
+      void saveWfhRequests(updated);
+      return updated;
+    });
+    void (async () => {
+      try {
+        if (isSupabaseConfigured && supabase) {
+          await supabase.from('wfh_requests').delete().eq('id', requestId);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    })();
   };
 
   const handleUpdateRecord = (updatedRecord: AttendanceRecord) => {
@@ -2101,6 +2183,9 @@ const handleSubmitLeave = (
             onUpdateUser={handleUpdateUser}
 
             onCancelLeave={handleCancelLeave}
+            onCancelWfh={handleCancelWfh}
+            onDeleteLeave={handleDeleteLeave}
+            onDeleteWfh={handleDeleteWfh}
             tasks={tasks}
             onAddTask={handleAddTask}
             onUpdateTask={handleUpdateTask}

@@ -40,6 +40,15 @@ const normalizeEmployeeId = (value: string): string => {
   return `BS-${withoutPrefix}`;
 };
 
+const getLeaveLengthDays = (startDate: string, endDate: string) => {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return 0;
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const diff = Math.abs(end.getTime() - start.getTime());
+  return Math.floor(diff / msPerDay) + 1;
+};
+
 const getShiftForEmployee = (employeeId?: string, dateStr?: string) => {
   const normalized = employeeId ? normalizeEmployeeId(employeeId) : '';
   const override = (APP_CONFIG as any).SHIFT_OVERRIDES?.[normalized];
@@ -170,6 +179,9 @@ interface EmployeeDashboardProps {
   onUpdateChecklist: (checklist: UserChecklist) => void;
   onUpdateUser: (user: User) => void;
   onCancelLeave: (leaveId: string) => void;
+  onCancelWfh: (requestId: string) => void;
+  onDeleteLeave: (leaveId: string) => void;
+  onDeleteWfh: (requestId: string) => void;
   tasks: Task[];
   onUpdateTask: (task: Task) => void;
   onAddTask: (task: Task) => void;
@@ -196,6 +208,9 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   onUpdateUser,
 
   onCancelLeave,
+  onCancelWfh,
+  onDeleteLeave,
+  onDeleteWfh,
   tasks,
   onUpdateTask,
   onAddTask,
@@ -1397,18 +1412,20 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                   </div>
                   <button
                     onClick={() => {
-                      if (!leaveStartDate || !leaveEndDate) return;
-                      const safeStart = leaveStartDate <= leaveEndDate ? leaveStartDate : leaveEndDate;
-                      const safeEnd = leaveStartDate <= leaveEndDate ? leaveEndDate : leaveStartDate;
-                      const start = new Date(safeStart);
-                      const diffDays = Math.floor((start.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                      if (diffDays < 7) {
-                        alert('Leave should be applied at least 1 week prior.');
-                        return;
-                      }
-                      const willBePaid = leaveType !== 'Unpaid' && leavePaid && selectedRemaining > 0;
-                      onSubmitLeave(safeStart, safeEnd, leaveApplication, leaveType, willBePaid);
-                      const todayStr = getLocalDateString(new Date());
+                    if (!leaveStartDate || !leaveEndDate) return;
+                    const safeStart = leaveStartDate <= leaveEndDate ? leaveStartDate : leaveEndDate;
+                    const safeEnd = leaveStartDate <= leaveEndDate ? leaveEndDate : leaveStartDate;
+                    const start = new Date(safeStart);
+                    const leaveLength = getLeaveLengthDays(safeStart, safeEnd);
+                    const noticeDays = Math.floor((start.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                    const needsWeekNotice = leaveLength > 2;
+                    if (needsWeekNotice && noticeDays < 7) {
+                      alert('Leaves longer than 2 days must be applied at least 1 week prior.');
+                      return;
+                    }
+                    const willBePaid = leaveType !== 'Unpaid' && leavePaid && selectedRemaining > 0;
+                    onSubmitLeave(safeStart, safeEnd, leaveApplication, leaveType, willBePaid);
+                    const todayStr = getLocalDateString(new Date());
                       setLeaveStartDate(todayStr);
                       setLeaveEndDate(todayStr);
                       setLeaveApplication(buildLeaveTemplate(user));
@@ -1501,6 +1518,16 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                             Cancel
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!window.confirm('Delete this leave entry?')) return;
+                            onDeleteLeave(l.id);
+                          }}
+                          className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest bg-rose-50 text-rose-600 border border-rose-100 hover:bg-rose-100 transition-all"
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
                     <p className="text-sm font-bold text-slate-800">"{l.reason}"</p>
@@ -1517,7 +1544,31 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     <div key={req.id} className="glass-card rounded-[2rem] p-6 mb-3 border-l-8 border-slate-300">
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">{req.startDate} → {req.endDate}</span>
-                        <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600' : req.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{req.status}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600' : req.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{req.status}</span>
+                          {req.status === 'Pending' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!window.confirm('Withdraw this WFH request?')) return;
+                                onCancelWfh(req.id);
+                              }}
+                              className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all"
+                            >
+                              Withdraw
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!window.confirm('Delete this WFH entry?')) return;
+                              onDeleteWfh(req.id);
+                            }}
+                            className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest bg-rose-50 text-rose-600 border border-rose-100 hover:bg-rose-100 transition-all"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
                       <p className="text-xs font-bold text-slate-700">"{req.reason}"</p>
                       <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mt-2">Requested on {new Date(req.submittedAt).toLocaleDateString()}</p>

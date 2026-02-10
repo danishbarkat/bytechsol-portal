@@ -61,7 +61,7 @@ export interface LeaveRequest {
   isPaid?: boolean;
 }
 
-export type WfhStatus = 'Pending' | 'Approved' | 'Rejected';
+export type WfhStatus = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
 
 export interface WorkFromHomeRequest {
   id: string;

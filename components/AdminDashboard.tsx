@@ -1846,9 +1846,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   const safeStart = leaveStartDate <= leaveEndDate ? leaveStartDate : leaveEndDate;
                   const safeEnd = leaveStartDate <= leaveEndDate ? leaveEndDate : leaveStartDate;
                   const start = new Date(safeStart);
-                  const diffDays = Math.floor((start.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                  if (diffDays < 7) {
-                    alert('Leave should be applied at least 1 week prior.');
+                  const end = new Date(safeEnd);
+                  const leaveLength = Math.floor(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                  const noticeDays = Math.floor((start.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                  const needsWeekNotice = leaveLength > 2;
+                  if (needsWeekNotice && noticeDays < 7) {
+                    alert('Leaves longer than 2 days must be applied at least 1 week prior.');
                     return;
                   }
                   const willBePaid = leaveType !== 'Unpaid' && leavePaid && selectedRemaining > 0;

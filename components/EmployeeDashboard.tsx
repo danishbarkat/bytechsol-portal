@@ -749,8 +749,12 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const lateCountThisMonthRaw = records.filter(r => matchesUserRecord(r) && r.status === 'Late' && isSameMonth(r.date, currentTime)).length;
   const lateCountThisMonth = lateResetIds.includes(normalizedEmployeeId || '') ? 0 : lateCountThisMonthRaw;
   const lateRemaining = Math.max(0, lateAllowance - lateCountThisMonth);
-  const basicPay = Number(user.basicSalary) || 0;
-  const allowancePay = Number(user.allowances) || 0;
+  const basicPay = Number(user.basicSalary) || Number(user.salary) || 0;
+  const allowanceTotal =
+    (Number(user.allowances) || 0) +
+    (Number(user.homeAllowance) || 0) +
+    (Number(user.travelAllowance) || 0) +
+    (Number(user.internetAllowance) || 0);
   const monthlySalary = calculateTotalSalary(user.basicSalary, user.allowances, user.homeAllowance, user.travelAllowance, user.internetAllowance, user.salary);
   const dailySalary = monthlySalary ? Math.round(monthlySalary / 30) : null;
   const selectedRemaining = leaveType === 'Unpaid'
@@ -1832,6 +1836,14 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     <div className="mt-6 space-y-3 text-xs">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-slate-500">Base Salary</span>
+                        <span className="font-black text-slate-900">{formatCurrency(basicPay)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-500">Allowances</span>
+                        <span className="font-black text-emerald-600">+ {formatCurrency(allowanceTotal)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-600">Gross (Base + Allowances)</span>
                         <span className="font-black text-slate-900">{formatCurrency(monthlySalary)}</span>
                       </div>
                       <div className="flex items-center justify-between">
@@ -1847,7 +1859,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                         <span className="font-black text-rose-500">- {formatCurrency(earlyCheckoutDeduction)}</span>
                       </div>
                       <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                        <span className="font-bold text-slate-600">Taxable Salary</span>
+                        <span className="font-bold text-slate-600">Taxable Salary (Basic - Unpaid leave)</span>
                         <span className="font-black text-slate-900">{formatCurrency(taxableSalary)}</span>
                       </div>
                       <div className="flex items-center justify-between">

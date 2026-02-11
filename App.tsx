@@ -567,7 +567,7 @@ const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isWifiConnected, setIsWifiConnected] = useState(false);
-  const [ipStatus, setIpStatus] = useState<'checking' | 'allowed' | 'blocked'>('checking');
+  const [ipStatus, setIpStatus] = useState<'checking' | 'allowed' | 'blocked'>('allowed');
   const [publicIp, setPublicIp] = useState<string | null>(null);
   const remoteLoginIds = (APP_CONFIG.REMOTE_LOGIN_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
   const checkinOverrideIds = (APP_CONFIG.CHECKIN_OVERRIDE_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
@@ -812,30 +812,9 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    let isActive = true;
-    const verifyOfficeIp = async () => {
-      try {
-        const response = await fetch('https://api.ipify.org?format=json', { cache: 'no-store' });
-        const data = await response.json();
-        if (!isActive) return;
-        const currentIp = data?.ip ? String(data.ip) : '';
-        setPublicIp(currentIp || null);
-        const allowedIps = APP_CONFIG.OFFICE_ALLOWED_PUBLIC_IPS || [];
-        if (allowedIps.length === 0) {
-          setIpStatus('allowed');
-          return;
-        }
-        setIpStatus(allowedIps.includes(currentIp) ? 'allowed' : 'blocked');
-      } catch {
-        if (isActive) {
-          setIpStatus('blocked');
-        }
-      }
-    };
-    verifyOfficeIp();
-    return () => {
-      isActive = false;
-    };
+    // Disable public IP gating to avoid blocking legit check-ins
+    setIpStatus('allowed');
+    setPublicIp(null);
   }, []);
 
   useEffect(() => {
@@ -1337,14 +1316,7 @@ const App: React.FC = () => {
     const now = new Date();
     const shift = getShiftForEmployee(user.employeeId);
     const shiftDate = getShiftDateString(now, shift.start, shift.end);
-    if (!isWorkingDay(shiftDate)) {
-      setError('Check-in disabled on weekend/off day.');
-      return;
-    }
-    const hasShiftRecord = records.some(r => r.date === shiftDate && matchesUserRecord(r, user));
-    if (hasShiftRecord) {
-      return;
-    }
+    setError(null);
     const record: AttendanceRecord = {
       id: Math.random().toString(36).substr(2, 9),
       userId: user.id,

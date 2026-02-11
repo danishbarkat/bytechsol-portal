@@ -1396,7 +1396,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const downloadSalarySlipForUser = (targetUser: User, snapshot: NonNullable<ReturnType<typeof buildSalarySnapshot>>) => {
     const slipId = `${targetUser.employeeId}_${snapshot.monthKey}`;
     const basicPay = Number(targetUser.basicSalary) || (Number(targetUser.salary) || 0);
-    const allowancePay = Number(targetUser.allowances) || 0;
+    const allowancePay =
+      (Number(targetUser.allowances) || 0) +
+      (Number(targetUser.homeAllowance) || 0) +
+      (Number(targetUser.travelAllowance) || 0) +
+      (Number(targetUser.internetAllowance) || 0);
     const html = `<!doctype html>
       <html>
         <head>

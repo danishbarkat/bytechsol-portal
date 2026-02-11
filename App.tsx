@@ -1655,10 +1655,19 @@ const App: React.FC = () => {
       saveRecordsLocal(updated);
       return updated;
     });
-    void Promise.all([
-      adminDeleteAttendanceRecord(recordId).catch(console.error),
-      deleteAttendanceRecord(recordId).catch?.(console.error)
-    ]);
+    void (async () => {
+      try {
+        await adminDeleteAttendanceRecord(recordId);
+      } catch (err) {
+        console.error(err);
+      }
+      try {
+        await deleteAttendanceRecord(recordId);
+      } catch (err) {
+        console.error(err);
+      }
+      void refreshRecords();
+    })();
   };
 
   const handleUpdateESS = (profile: ESSProfile) => {

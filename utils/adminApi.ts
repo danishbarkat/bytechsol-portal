@@ -30,7 +30,7 @@ export const adminFetchAttendanceRecords = () =>
   adminRequest<{ data: AttendanceRecord[] }>('/attendance/list', {});
 
 export const adminDeleteAttendanceRecord = (recordId: string) =>
-  adminRequest('/attendance/delete', { id: recordId });
+  adminRequest('/attendance/delete', { id: recordId, recordId });
 
 export const adminFetchLeaves = () =>
   adminRequest<{ data: LeaveRequest[] }>('/leaves/list', {});

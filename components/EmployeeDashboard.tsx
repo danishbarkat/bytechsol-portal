@@ -1220,18 +1220,23 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                   ) : (
                     <button
                       onClick={activeRecord ? onCheckOut : onCheckIn}
-                      disabled={shiftLocked}
+                      disabled={false}
                       className={`w-full py-6 rounded-[2rem] font-black text-xl shadow-[0_20px_50px_rgba(37,99,235,0.2)] transition-all duration-500 ${activeRecord
                         ? 'bg-rose-600 text-white hover:bg-rose-700 hover:shadow-rose-500/30'
                         : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-blue-500/30 disabled:opacity-30'
                         }`}
                     >
-                      {activeRecord ? 'Check Out' : shiftLocked ? 'Shift Done' : 'Check In'}
+                      {activeRecord ? 'Check Out' : shiftLocked ? 'Check In (Override)' : 'Check In'}
                     </button>
                   )}
                   {!canTrack && !isAttendanceExempt && (
                     <p className="mt-3 text-[11px] font-black uppercase tracking-widest text-amber-600">
                       Note: Wi‑Fi check failed. You can still proceed, but time will be logged as remote.
+                    </p>
+                  )}
+                  {shiftLocked && !activeRecord && (
+                    <p className="mt-2 text-[11px] font-black uppercase tracking-widest text-amber-600">
+                      Previous shift entry exists for today. New check-in will create another record.
                     </p>
                   )}
 

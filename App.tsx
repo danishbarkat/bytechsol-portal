@@ -1624,12 +1624,10 @@ const App: React.FC = () => {
       saveRecordsLocal(newRecords);
       return newRecords;
     });
-    const isTimeEditor = (APP_CONFIG as any).TIME_EDIT_EMPLOYEE_IDS?.includes(normalizeEmployeeId(user?.employeeId || ''));
-    if (user?.role === Role.SUPERADMIN || isTimeEditor) {
-      void adminUpsertAttendanceRecord(updatedRecord).catch(console.error);
-    } else {
-      void upsertAttendanceRecord(updatedRecord);
-    }
+    void Promise.all([
+      adminUpsertAttendanceRecord(updatedRecord).catch(console.error),
+      upsertAttendanceRecord(updatedRecord).catch(console.error)
+    ]);
   };
 
   const handleEmployeeRecordUpdate = (updatedRecord: AttendanceRecord) => {
@@ -1657,12 +1655,10 @@ const App: React.FC = () => {
       saveRecordsLocal(updated);
       return updated;
     });
-    const isTimeEditor = (APP_CONFIG as any).TIME_EDIT_EMPLOYEE_IDS?.includes(normalizeEmployeeId(user?.employeeId || ''));
-    if (user?.role === Role.SUPERADMIN || isTimeEditor) {
-      void adminDeleteAttendanceRecord(recordId).catch(console.error);
-    } else {
-      void deleteAttendanceRecord(recordId);
-    }
+    void Promise.all([
+      adminDeleteAttendanceRecord(recordId).catch(console.error),
+      deleteAttendanceRecord(recordId).catch?.(console.error)
+    ]);
   };
 
   const handleUpdateESS = (profile: ESSProfile) => {

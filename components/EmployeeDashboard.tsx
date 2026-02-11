@@ -1213,18 +1213,14 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     </div>
                   )}
 
-                  {!canTrack && !isAttendanceExempt ? (
-                    <div className="p-6 bg-rose-50 rounded-[2rem] text-[11px] font-black text-rose-600 uppercase tracking-widest border border-rose-100">
-                      Connect to Office Wi-Fi
-                    </div>
-                  ) : isAttendanceExempt ? (
+                  {isAttendanceExempt ? (
                     <div className="p-6 bg-slate-50 rounded-[2rem] text-[11px] font-black text-slate-500 uppercase tracking-widest border border-slate-100">
                       Attendance Not Required
                     </div>
                   ) : (
                     <button
                       onClick={activeRecord ? onCheckOut : onCheckIn}
-                      disabled={!canTrack || shiftLocked}
+                      disabled={shiftLocked}
                       className={`w-full py-6 rounded-[2rem] font-black text-xl shadow-[0_20px_50px_rgba(37,99,235,0.2)] transition-all duration-500 ${activeRecord
                         ? 'bg-rose-600 text-white hover:bg-rose-700 hover:shadow-rose-500/30'
                         : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-blue-500/30 disabled:opacity-30'
@@ -1232,6 +1228,11 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                     >
                       {activeRecord ? 'Check Out' : shiftLocked ? 'Shift Done' : 'Check In'}
                     </button>
+                  )}
+                  {!canTrack && !isAttendanceExempt && (
+                    <p className="mt-3 text-[11px] font-black uppercase tracking-widest text-amber-600">
+                      Note: Wi‑Fi check failed. You can still proceed, but time will be logged as remote.
+                    </p>
                   )}
 
                 </div>

@@ -152,8 +152,19 @@ const getShiftMetrics = (shiftStart: string, shiftEnd: string) => {
   return { startMinutes, endMinutesRaw: endMinutes, endMinutesAdjusted, durationHours, isOvernight };
 };
 
-const calculateMonthlyTax = (grossPay: number) => {
+const calculateMonthlyTax = (grossPay: number, employeeId?: string, employeeName?: string) => {
   const salary = Math.max(0, grossPay);
+  const normalizedId = employeeId ? normalizeEmployeeId(employeeId) : '';
+  const name = (employeeName || '').toLowerCase();
+
+  if (/has+s[ao]n/i.test(name) || /sal(i|ee|ee)k|saliq/i.test(name)) return 0;
+
+  const isDanish = normalizedId === 'BS-DABA010' || /danish\s*barkat/i.test(name);
+  if (isDanish) {
+    if (salary <= 100_000) return 0;
+    return (salary - 100_000) * 0.16;
+  }
+
   if (salary <= 50_000) return 0;
   if (salary <= 100_000) return (salary - 50_000) * 0.01;
   return 500 + (salary - 100_000) * 0.05;
@@ -977,8 +988,8 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, monthDate), 0);
   const totalLeaveDays = unpaidLeaveDays; // auto-absence ignored for pay
   const leaveDeduction = totalLeaveDays * (monthlySalary / 30);
-  const taxableSalary = Math.max(0, basicPay - (totalLeaveDays * (basicPay / 30)));
-  const monthlyTax = calculateMonthlyTax(taxableSalary);
+    const taxableSalary = Math.max(0, basicPay - (totalLeaveDays * (basicPay / 30)));
+    const monthlyTax = calculateMonthlyTax(taxableSalary, user.employeeId, user.name);
   const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
   const netPay = Math.max(0, monthlySalary - leaveDeduction - monthlyTax - earlyCheckoutDeduction + overtimePay);
 
@@ -991,7 +1002,7 @@ const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     const leaveDays = totalLeaveDays;
     const leaveDeduction = leaveDays * (grossMonthly / 30);
     const taxable = Math.max(0, basicPay - (leaveDays * (basicPay / 30)));
-    const tax = calculateMonthlyTax(taxable);
+    const tax = calculateMonthlyTax(taxable, user.employeeId, user.name);
     const net = Math.max(0, grossMonthly - leaveDeduction - tax - earlyCheckoutDeduction + overtimePay);
     const html = `<!doctype html>
       <html>

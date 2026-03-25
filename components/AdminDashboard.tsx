@@ -64,11 +64,25 @@ const calculateTotalSalary = (basic?: number, allowances?: number, home?: number
   return total || (Number(fallback) || 0);
 };
 
-const calculateMonthlyTax = (grossPay: number) => {
+const calculateMonthlyTax = (grossPay: number, employeeId?: string, employeeName?: string) => {
   const salary = Math.max(0, grossPay);
-  if (salary <= 50_000) return 0;
-  if (salary <= 100_000) return (salary - 50_000) * 0.01;
-  return 500 + (salary - 100_000) * 0.05;
+  const normalizedId = employeeId ? normalizeEmployeeId(employeeId) : '';
+  const name = (employeeName || '').toLowerCase();
+
+  // Explicit exemptions (user said Hasan & Salik no tax)
+  if (/has+s[ao]n/i.test(name) || /sal(i|ee|ee)k|saliq/i.test(name)) return 0;
+
+  // Danish Barkat needs 16% over 100k
+  const isDanish = normalizedId === 'BS-DABA010' || /danish\s*barkat/i.test(name);
+  if (isDanish) {
+    if (salary <= 100_000) return 0;
+    return (salary - 100_000) * 0.16;
+  }
+
+  // Default progressive
+  if (salary <= 50_000) return 0; // <= 600k annual => no tax
+  if (salary <= 100_000) return (salary - 50_000) * 0.01; // 1% over 50k
+  return 500 + (salary - 100_000) * 0.05; // 5% over 100k
 };
 
 const normalizeEmployeeId = (value: string): string => {
@@ -253,7 +267,7 @@ const buildDocumentHtml = (
   const internetAllowance = Number(data.internetAllowance || 0);
   const otherDeductions = Number(data.otherDeductions || 0);
   const totalEarnings = basicPay + homeAllowance + travelAllowance + internetAllowance;
-  const tax = Math.round(calculateMonthlyTax(basicPay));
+  const tax = Math.round(calculateMonthlyTax(basicPay, data.employeeId, data.employeeName));
   const totalDeductions = tax + otherDeductions;
   const netPay = Math.max(0, totalEarnings - totalDeductions);
   const netPayDisplay = showNetPay ? formatCurrency(netPay) : 'Restricted';
@@ -374,7 +388,7 @@ const buildDocumentHtml = (
           </tr>
         </table>
         <div style="font-size:11px;color:#64748b;margin-top:10px;">
-          Tax is calculated using progressive Pakistan slabs.
+          Tax follows progressive PK slabs on basic pay.
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:16px;">
           <div style="font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.2em;">Net Pay</div>
@@ -858,7 +872,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     + (Number(docForm.homeAllowance) || 0)
     + (Number(docForm.travelAllowance) || 0)
     + (Number(docForm.internetAllowance) || 0);
-  const docTaxAmount = Math.round(calculateMonthlyTax(docEarningsTotal));
+  const docTaxAmount = Math.round(calculateMonthlyTax(Number(docForm.basicPay) || 0, docForm.employeeId, docForm.employeeName));
 
   useEffect(() => {
     setLeaveApplication(buildLeaveTemplate(user));
@@ -966,7 +980,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .reduce((sum, leave) => sum + countLeaveDaysInMonth(leave, now), 0);
     const leaveDeduction = unpaidLeaveDays * (monthlySalary / 30);
     const taxableSalary = Math.max(0, monthlySalary - leaveDeduction - earlyCheckoutDeduction);
-    const monthlyTax = calculateMonthlyTax(targetUser.basicSalary || 0);
+    const baseForTax = Number.isFinite(targetUser.basicSalary)
+      ? Number(targetUser.basicSalary)
+      : (Number(targetUser.salary) || 0);
+    const monthlyTax = calculateMonthlyTax(baseForTax, targetUser.employeeId, targetUser.name);
     const salaryAfterTax = Math.max(0, taxableSalary - monthlyTax);
     const netPay = salaryAfterTax + overtimePay;
     return {
@@ -1393,6 +1410,144 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     a.click();
   };
 
+  const exportMonthlyAttendanceAll = () => {
+    const exportUsers = users.filter(u => u.role !== Role.SUPERADMIN);
+    if (!exportUsers.length) {
+      alert('No users available to export.');
+      return;
+    }
+    const monthKey = effectiveMonthFilter || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+    const [y, m] = monthKey.split('-').map(Number);
+    if (!y || !m) return;
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const dates: string[] = Array.from({ length: daysInMonth }, (_, i) => `${y}-${String(m).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`);
+    const monthLabel = new Date(`${monthKey}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    const recordsByUser = exportUsers.reduce<Record<string, AttendanceRecord[]>>((acc, u) => {
+      acc[u.id] = records.filter(r => r.userId === u.id && resolveRecordDate(r).startsWith(monthKey));
+      return acc;
+    }, {});
+
+    const leavesByUser = exportUsers.reduce<Record<string, LeaveRequest[]>>((acc, u) => {
+      acc[u.id] = leaves.filter(l => l.userId === u.id && l.status === 'Approved');
+      return acc;
+    }, {});
+
+    const toCsv = (value: any) => {
+      const str = value === null || value === undefined ? '' : String(value);
+      if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+      return str;
+    };
+
+    const header: string[] = ['S.No', 'Employee', 'Employee ID'];
+    dates.forEach(d => header.push(d.split('-')[2])); // day numbers as columns
+    header.push('Absent Days', 'Leave Days', 'Tax', 'Total Salary', 'Deductions', 'Net Pay');
+
+    const rows: string[][] = [header.map(toCsv)];
+
+    const isWeekend = (dateStr: string) => {
+      const d = new Date(`${dateStr}T00:00:00`);
+      const day = d.getDay();
+      return day === 0 || day === 6;
+    };
+
+    const findLeaveForDate = (userId: string, dateStr: string): LeaveRequest | null => {
+      const list = leavesByUser[userId] || [];
+      const target = new Date(`${dateStr}T00:00:00`);
+      return list.find(l => {
+        const start = new Date(`${l.startDate}T00:00:00`);
+        const end = new Date(`${l.endDate}T00:00:00`);
+        return start <= target && target <= end;
+      }) || null;
+    };
+
+    let totalGross = 0;
+    let totalTax = 0;
+    let totalDeduction = 0;
+    let totalNet = 0;
+
+    exportUsers.forEach((u, idx) => {
+      const userRecords = recordsByUser[u.id] || [];
+      const basic = Number(u.basicSalary) || 0;
+      const home = Number(u.homeAllowance) || 0;
+      const travel = Number(u.travelAllowance) || 0;
+      const internet = Number(u.internetAllowance) || 0;
+      const otherAllow = Number(u.allowances) || 0;
+      const gross = basic + home + travel + internet + otherAllow;
+      const unpaidLeaveDays = (leavesByUser[u.id] || []).reduce((sum, l) => {
+        if (l.isPaid === false) {
+          return sum + countLeaveDaysInMonth(l, new Date(`${monthKey}-01T00:00:00`));
+        }
+        return sum;
+      }, 0);
+      const leaveDeduction = unpaidLeaveDays * (gross / 30);
+      const tax = calculateMonthlyTax(basic, u.employeeId, u.name);
+      const net = Math.max(0, gross - tax - leaveDeduction);
+
+      totalGross += gross;
+      totalTax += tax;
+      totalDeduction += leaveDeduction + tax;
+      totalNet += net;
+
+      let absentCount = 0;
+      let leaveCount = 0;
+
+      const dailyMarks = dates.map(dateStr => {
+        const rec = userRecords.find(r => resolveRecordDate(r) === dateStr) || null;
+        const leave = findLeaveForDate(u.id, dateStr);
+        const weekend = isWeekend(dateStr);
+        if (leave) {
+          leaveCount += 1;
+          return leave.isPaid === false ? 'UL' : 'LV';
+        }
+        if (weekend) return 'W';
+        if (!rec) {
+          absentCount += 1;
+          return 'A';
+        }
+        const isLate = calculateCheckInStatus(rec) === 'Late';
+        return isLate ? 'L' : 'P';
+      });
+
+      rows.push([
+        idx + 1,
+        u.name || '',
+        u.employeeId || '',
+        ...dailyMarks,
+        absentCount,
+        leaveCount,
+        Math.round(tax),
+        Math.round(gross),
+        Math.round(leaveDeduction + tax),
+        Math.round(net)
+      ].map(toCsv));
+    });
+
+    rows.push([
+      '',
+      'TOTAL',
+      '',
+      ...Array(dates.length).fill(''),
+      '',
+      '',
+      Math.round(totalTax),
+      Math.round(totalGross),
+      Math.round(totalDeduction),
+      Math.round(totalNet)
+    ].map(toCsv));
+
+    const csv = rows.map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Attendance_${monthKey}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
   const downloadSalarySlipForUser = (targetUser: User, snapshot: NonNullable<ReturnType<typeof buildSalarySnapshot>>) => {
     const slipId = `${targetUser.employeeId}_${snapshot.monthKey}`;
     const basicPay = Number(targetUser.basicSalary) || (Number(targetUser.salary) || 0);
@@ -1729,6 +1884,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </svg>
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={exportMonthlyAttendanceAll}
+                  className="px-4 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest shadow-md hover:bg-blue-700 transition-all whitespace-nowrap"
+                  title="Export all employees with daily attendance and salary summary"
+                >
+                  Export Month (All)
+                </button>
               </div>
             </div>
             {selectedEmp === 'all' ? (
@@ -2302,7 +2465,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       PKR {docTaxAmount.toLocaleString()}
                     </div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
-                      Calculated on total earnings.
+                      Calculated on basic pay (PK progressive slabs).
                     </p>
                   </div>
                   <div className="space-y-1">

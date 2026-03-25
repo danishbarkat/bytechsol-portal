@@ -73,6 +73,106 @@ const normalizeEmployeeId = (value: string): string => {
   return `BS-${withoutPrefix}`;
 };
 
+const applySalaryOverrides = (users: User[]): User[] => {
+  const matchDanish = (u: User) =>
+    normalizeEmployeeId(u.employeeId || '') === 'BS-DABA010' ||
+    /danish\s*barkat/i.test(u.name || '');
+  const matchMehdi = (u: User) => /mehdi/i.test(u.name || '');
+  const matchGunjBux = (u: User) => /gunj\s*bux/i.test(u.name || '');
+  const matchHassanQureshi = (u: User) =>
+    /hassan\s+qureshi/i.test(u.name || '') || normalizeEmployeeId(u.employeeId || '') === 'BS-HAQU012';
+  const matchNoorSabah = (u: User) =>
+    /noor.*sabah/i.test(u.name || '') || normalizeEmployeeId(u.employeeId || '') === 'BS-NOUL014';
+
+  const splitRemainder = (total: number, basic: number) => {
+    const remaining = Math.max(0, total - basic);
+    const home = Math.floor(remaining / 2);
+    const travel = remaining - home;
+    return { homeAllowance: home, travelAllowance: travel };
+  };
+
+  return users.map(u => {
+    const total = Number.isFinite(u.salary) ? (u.salary || 0)
+      : (Number(u.basicSalary || 0) + Number(u.allowances || 0) + Number(u.homeAllowance || 0) + Number(u.travelAllowance || 0) + Number(u.internetAllowance || 0));
+
+    // Danish: fixed breakdown basic 110k, home 30k, travel 10k
+    if (matchDanish(u)) {
+      const salary = 150_000; // lock to 150k total as requested
+      return {
+        ...u,
+        salary,
+        basicSalary: 110_000,
+        homeAllowance: 30_000,
+        travelAllowance: 10_000,
+        allowances: 0,
+        internetAllowance: 0
+      };
+    }
+
+    // Mehdi: total 110k -> basic 90k, home 10k, travel 10k
+    if (matchMehdi(u)) {
+      const salary = Math.max(total, 110_000);
+      return {
+        ...u,
+        salary,
+        basicSalary: 90_000,
+        homeAllowance: 10_000,
+        travelAllowance: 10_000
+      };
+    }
+
+    // Gunj Bux: total 50k -> basic 40k, home 10k
+    if (matchGunjBux(u)) {
+      const salary = 50_000;
+      return {
+        ...u,
+        salary,
+        basicSalary: 40_000,
+        homeAllowance: 10_000,
+        travelAllowance: 0
+      };
+    }
+
+    // Hassan Qureshi: total 60k -> basic 50k, home 10k
+    if (matchHassanQureshi(u)) {
+      const salary = 60_000;
+      return {
+        ...u,
+        salary,
+        basicSalary: 50_000,
+        homeAllowance: 10_000,
+        travelAllowance: 0
+      };
+    }
+
+    // Noor Sabah: total 81k -> basic 60k, home 15k, travel 6k (tax ~100)
+    if (matchNoorSabah(u)) {
+      const salary = 81_000;
+      return {
+        ...u,
+        salary,
+        basicSalary: 60_000,
+        homeAllowance: 15_000,
+        travelAllowance: 6_000
+      };
+    }
+
+    // Generic rule: if total >= 80k => basic 60k, else if total >= 65k => basic 50k
+    if (total >= 80_000) {
+      const basic = 60_000;
+      const { homeAllowance, travelAllowance } = splitRemainder(total, basic);
+      return { ...u, salary: total, basicSalary: basic, homeAllowance, travelAllowance };
+    }
+    if (total >= 65_000) {
+      const basic = 50_000;
+      const { homeAllowance, travelAllowance } = splitRemainder(total, basic);
+      return { ...u, salary: total, basicSalary: basic, homeAllowance, travelAllowance };
+    }
+
+    return u;
+  });
+};
+
 const normalizeEmail = (value: string | undefined): string =>
   (value || '').trim().toLowerCase();
 
@@ -570,6 +670,7 @@ const App: React.FC = () => {
   const [ipStatus, setIpStatus] = useState<'checking' | 'allowed' | 'blocked'>('allowed');
   const [publicIp, setPublicIp] = useState<string | null>(null);
   const remoteLoginIds = (APP_CONFIG.REMOTE_LOGIN_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
+  const remoteLoginNames = ((APP_CONFIG as any).REMOTE_LOGIN_NAMES || []).map((n: string) => (n || '').trim().toLowerCase()).filter(Boolean);
   const checkinOverrideIds = (APP_CONFIG.CHECKIN_OVERRIDE_EMPLOYEE_IDS || []).map(normalizeEmployeeId);
   const usersRef = useRef<User[]>([]);
   const syncAttemptsRef = useRef<Map<string, number>>(new Map());
@@ -698,10 +799,13 @@ const App: React.FC = () => {
         return { ...u, name: rule.nextName, firstName, lastName };
       });
 
-      setUsers(renamed);
-      if (useMockDefaults || coreChanged || nameChanged) {
-        void saveUsers(renamed);
-        renamed.forEach(u => {
+      const salaryOverridden = applySalaryOverrides(renamed);
+      const salaryChanged = salaryOverridden.some((u, idx) => u !== renamed[idx]);
+
+      setUsers(salaryOverridden);
+      if (useMockDefaults || coreChanged || nameChanged || salaryChanged) {
+        void saveUsers(salaryOverridden);
+        salaryOverridden.forEach(u => {
           if (u.employeeId) {
             void adminUpsertUser(u).catch(console.error);
           }
@@ -811,11 +915,37 @@ const App: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => {
-    // Disable public IP gating to avoid blocking legit check-ins
-    setIpStatus('allowed');
-    setPublicIp(null);
-  }, []);
+useEffect(() => {
+  let cancelled = false;
+  const allowedIps = (APP_CONFIG.OFFICE_ALLOWED_PUBLIC_IPS || []).map(ip => ip.trim());
+  const shouldEnforce = allowedIps.length > 0;
+  const checkIp = async () => {
+    setIpStatus('checking');
+    try {
+      const resp = await fetch('https://api.ipify.org?format=json');
+      const data = await resp.json();
+      const ip = data?.ip || '';
+      if (cancelled) return;
+      setPublicIp(ip);
+      if (!shouldEnforce) {
+        setIpStatus('allowed');
+        return;
+      }
+      const allowed = allowedIps.includes(ip);
+      setIpStatus(allowed ? 'allowed' : 'blocked');
+    } catch (err) {
+      console.error('IP lookup failed', err);
+      if (!cancelled) {
+        setPublicIp(null);
+        setIpStatus(shouldEnforce ? 'blocked' : 'allowed');
+      }
+    }
+  };
+  checkIp();
+  return () => {
+    cancelled = true;
+  };
+}, []);
 
   useEffect(() => {
     if (user || users.length === 0) return;
@@ -1210,10 +1340,12 @@ const App: React.FC = () => {
       ? leaves.some(l => l.userId === matchedUser.id && l.status === 'Approved' && isDateInRange(todayStr, l.startDate, l.endDate))
       : false;
     const isHrOrAdmin = matchedUser ? [Role.HR, Role.CEO, Role.SUPERADMIN].includes(matchedUser.role) : false;
+    const matchesRemoteName = matchedUser?.name ? remoteLoginNames.includes(matchedUser.name.trim().toLowerCase()) : false;
     const isRemoteLoginAllowed = remoteLoginIds.includes(normalizedId)
       || matchedUser?.workMode === 'Remote'
       || isWfhToday
-      || isLeaveToday;
+      || isLeaveToday
+      || matchesRemoteName;
     if (ipStatus === 'blocked' && !isRemoteLoginAllowed && !isHrOrAdmin) {
       setError('Office Wi-Fi required or approved WFH/leave for this account.');
       return;

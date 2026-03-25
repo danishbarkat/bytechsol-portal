@@ -260,6 +260,7 @@ const buildDocumentHtml = (
   const ceoName = safeUpper('ceoName', 'KAZMI');
   const company = safeUpper('company', 'BYTECHSOL LLC');
   const workingDays = safe('workingDays', '30');
+  const paymentMode = data.paymentMode === 'cash' ? 'Salary in Cash' : 'Online Transfer';
   const hrFooter = 'Human Resources Department';
   const basicPay = Number(data.basicPay || 0);
   const homeAllowance = Number(data.homeAllowance || 0);
@@ -347,6 +348,12 @@ const buildDocumentHtml = (
             <td style="padding:6px 0;font-weight:700;">${employeeId}</td>
             <td style="padding:6px 0;color:#94a3b8;">Designation</td>
             <td style="padding:6px 0;font-weight:700;">${role}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#94a3b8;">Payment Mode</td>
+            <td style="padding:6px 0;font-weight:700;">${escapeHtml(paymentMode)}</td>
+            <td style="padding:6px 0;color:#94a3b8;"></td>
+            <td style="padding:6px 0;font-weight:700;"></td>
           </tr>
         </table>
         <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;">
@@ -682,6 +689,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       signatory: 'CHIEF EXECUTIVE OFFICER',
       ceoName: 'YASIR BAJWA',
       company: 'BYTECHSOL LLC',
+      paymentMode: 'online-transfer',
       basicSalary: '',
       allowances: '',
       deductions: '',
@@ -1588,7 +1596,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     window.URL.revokeObjectURL(url);
   };
 
-  const downloadSalarySlipForUser = (targetUser: User, snapshot: NonNullable<ReturnType<typeof buildSalarySnapshot>>) => {
+  const downloadSalarySlipForUser = (
+    targetUser: User,
+    snapshot: NonNullable<ReturnType<typeof buildSalarySnapshot>>,
+    paymentMode: string
+  ) => {
     const slipId = `${targetUser.employeeId}_${snapshot.monthKey}`;
     const basicPay = Number(targetUser.basicSalary) || (Number(targetUser.salary) || 0);
     const allowancePay =
@@ -1596,6 +1608,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       (Number(targetUser.homeAllowance) || 0) +
       (Number(targetUser.travelAllowance) || 0) +
       (Number(targetUser.internetAllowance) || 0);
+    const paymentModeLabel = paymentMode === 'cash' ? 'Salary in Cash' : 'Online Transfer';
     const html = `<!doctype html>
       <html>
         <head>
@@ -1619,6 +1632,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div class="card">
             <h1>Salary Slip</h1>
             <div class="meta">Month: ${snapshot.monthLabel} • Employee: ${targetUser.name} • ID: ${targetUser.employeeId}</div>
+            <div class="meta">Payment Mode: ${paymentModeLabel}</div>
             <table>
               <tr><th>Earnings</th><th>Amount</th></tr>
               <tr><td>Basic Salary</td><td>${formatCurrency(basicPay)}</td></tr>
@@ -2306,7 +2320,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       onClick={() => {
                         const targetUser = user.role === Role.CEO ? users.find(u => u.id === selectedDocUserId) || null : user;
                         const snapshot = user.role === Role.CEO ? selectedSnapshot : mySnapshot;
-                        if (targetUser && snapshot) downloadSalarySlipForUser(targetUser, snapshot);
+                        if (targetUser && snapshot) downloadSalarySlipForUser(targetUser, snapshot, docForm.paymentMode || 'online-transfer');
                       }}
                       className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all flex items-center gap-2"
                     >
@@ -2511,6 +2525,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="space-y-1">
                     <label htmlFor="doc-other-deductions" className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Other Deductions</label>
                     <input id="doc-other-deductions" name="otherDeductions" type="number" value={docForm.otherDeductions} onChange={e => updateDocForm('otherDeductions', e.target.value)} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-800" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest ml-2">Payment Mode</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <label className="flex items-center gap-3 px-5 py-4 rounded-2xl bg-slate-50 border-2 border-transparent hover:border-blue-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={docForm.paymentMode === 'cash'}
+                          onChange={() => updateDocForm('paymentMode', 'cash')}
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="font-bold text-slate-800">Salary in Cash</span>
+                      </label>
+                      <label className="flex items-center gap-3 px-5 py-4 rounded-2xl bg-slate-50 border-2 border-transparent hover:border-blue-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={docForm.paymentMode === 'online-transfer'}
+                          onChange={() => updateDocForm('paymentMode', 'online-transfer')}
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="font-bold text-slate-800">Online Transfer</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
               )}

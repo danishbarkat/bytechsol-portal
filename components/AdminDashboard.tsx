@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import ExcelJS from 'exceljs';
 import { AttendanceRecord, LeaveRequest, Role, User, ESSProfile, UserChecklist, WorkFromHomeRequest, CheckInStatus, Task } from '../types';
 import TaskBoard from './TaskBoard';
 import { formatDuration, calculateWeeklyOvertime } from '../utils/storage';
@@ -1458,7 +1459,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     a.click();
   };
 
-  const exportMonthlyAttendanceAll = () => {
+  const exportMonthlyAttendanceAll = async () => {
     const exportUsers = users.filter(u => u.role !== Role.SUPERADMIN);
     if (!exportUsers.length) {
       alert('No users available to export.');
@@ -1504,22 +1505,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     let totalTax = 0;
     let totalDeduction = 0;
     let totalNet = 0;
-
-    const headerCells = [
-      '<th>S.No</th>',
-      '<th>Employee</th>',
-      '<th>Employee ID</th>',
-      ...dates.map(dateStr => {
-        const weekendClass = weekendDates.has(dateStr) ? 'weekend-col' : '';
-        return `<th class="${weekendClass}">${escapeHtml(`${getWeekdayShort(dateStr)} ${dateStr.slice(-2)}`)}</th>`;
-      }),
-      '<th>Absent Days</th>',
-      '<th>Leave Days</th>',
-      '<th>Tax</th>',
-      '<th>Total Salary</th>',
-      '<th>Deductions</th>',
-      '<th>Net Pay</th>'
-    ].join('');
 
     const computedRows = exportUsers.map((u, idx) => {
       const userRecords = recordsByUser[u.id] || [];
@@ -1571,82 +1556,166 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         net: Math.round(net)
       };
     });
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Bytechsol Portal';
+    workbook.created = new Date();
 
-    const rowHtml = computedRows.map(row => {
-      const dayCells = row.dailyMarks.map((mark, index) => {
-        const dateStr = dates[index];
-        const weekendClass = weekendDates.has(dateStr) ? 'weekend-cell' : '';
-        return `<td class="${weekendClass}">${escapeHtml(mark)}</td>`;
-      }).join('');
+    const worksheet = workbook.addWorksheet(`Attendance_${monthKey}`);
+    const totalColumns = 3 + dates.length + 6;
 
-      return `
-        <tr>
-          <td>${row.serial}</td>
-          <td class="text-cell">${escapeHtml(row.employee)}</td>
-          <td class="text-cell">${escapeHtml(row.employeeId)}</td>
-          ${dayCells}
-          <td>${row.absentCount}</td>
-          <td>${row.leaveCount}</td>
-          <td>${row.tax}</td>
-          <td>${row.gross}</td>
-          <td>${row.deductions}</td>
-          <td>${row.net}</td>
-        </tr>
-      `;
-    }).join('');
+    worksheet.mergeCells(1, 1, 1, totalColumns);
+    const titleCell = worksheet.getCell(1, 1);
+    titleCell.value = `Attendance ${monthLabel} (${monthKey})`;
+    titleCell.font = { bold: true, size: 16 };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    titleCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFEFF6FF' }
+    };
+    worksheet.getRow(1).height = 24;
 
-    const totalDayCells = dates.map(dateStr => (
-      `<td class="${weekendDates.has(dateStr) ? 'weekend-cell' : ''}"></td>`
-    )).join('');
+    const headerRowIndex = 3;
+    const headerLabels = [
+      'S.No',
+      'Employee',
+      'Employee ID',
+      ...dates.map(dateStr => `${getWeekdayShort(dateStr)} ${dateStr.slice(-2)}`),
+      'Absent Days',
+      'Leave Days',
+      'Tax',
+      'Total Salary',
+      'Deductions',
+      'Net Pay'
+    ];
+    const headerRow = worksheet.getRow(headerRowIndex);
+    headerLabels.forEach((label, index) => {
+      headerRow.getCell(index + 1).value = label;
+    });
+    headerRow.font = { bold: true, color: { argb: 'FF111827' } };
+    headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
+    headerRow.height = 22;
 
-    const excelHtml = `<!doctype html>
-      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="ProgId" content="Excel.Sheet" />
-          <meta name="Generator" content="Bytechsol Portal" />
-          <style>
-            body { font-family: Arial, sans-serif; padding: 16px; color: #111827; }
-            h1 { font-size: 20px; text-align: center; margin: 0 0 16px; }
-            table { border-collapse: collapse; width: 100%; }
-            th, td { border: 1px solid #cbd5e1; padding: 6px 8px; font-size: 12px; text-align: center; white-space: nowrap; }
-            th { background: #d1d5db; font-weight: 700; }
-            .text-cell { text-align: left; }
-            .weekend-col { background: #fde68a; color: #7c2d12; }
-            .weekend-cell { background: #fef3c7; color: #92400e; font-weight: 700; }
-            .total-row td { background: #e5e7eb; font-weight: 700; }
-          </style>
-        </head>
-        <body>
-          <h1>Attendance ${escapeHtml(monthLabel)} (${escapeHtml(monthKey)})</h1>
-          <table>
-            <thead>
-              <tr>${headerCells}</tr>
-            </thead>
-            <tbody>
-              ${rowHtml}
-              <tr class="total-row">
-                <td></td>
-                <td class="text-cell">TOTAL</td>
-                <td></td>
-                ${totalDayCells}
-                <td></td>
-                <td></td>
-                <td>${Math.round(totalTax)}</td>
-                <td>${Math.round(totalGross)}</td>
-                <td>${Math.round(totalDeduction)}</td>
-                <td>${Math.round(totalNet)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </body>
-      </html>`;
+    const baseHeaderFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFD1D5DB' } };
+    const weekendHeaderFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFDE68A' } };
+    const weekendCellFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFEF3C7' } };
+    const totalFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFE5E7EB' } };
 
-    const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel' });
+    for (let col = 1; col <= totalColumns; col += 1) {
+      const cell = headerRow.getCell(col);
+      cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+      cell.fill = baseHeaderFill;
+    }
+
+    dates.forEach((dateStr, index) => {
+      if (!weekendDates.has(dateStr)) return;
+      const cell = headerRow.getCell(4 + index);
+      cell.fill = weekendHeaderFill;
+      cell.font = { bold: true, color: { argb: 'FF7C2D12' } };
+    });
+
+    worksheet.columns = [
+      { width: 8 },
+      { width: 24 },
+      { width: 18 },
+      ...dates.map(() => ({ width: 14 })),
+      { width: 12 },
+      { width: 12 },
+      { width: 12 },
+      { width: 14 },
+      { width: 14 },
+      { width: 14 }
+    ];
+
+    const dataRowStart = headerRowIndex + 1;
+    computedRows.forEach((row, rowIndex) => {
+      const excelRow = worksheet.getRow(dataRowStart + rowIndex);
+      const values = [
+        row.serial,
+        row.employee,
+        row.employeeId,
+        ...row.dailyMarks,
+        row.absentCount,
+        row.leaveCount,
+        row.tax,
+        row.gross,
+        row.deductions,
+        row.net
+      ];
+      values.forEach((value, index) => {
+        excelRow.getCell(index + 1).value = value;
+      });
+      excelRow.alignment = { horizontal: 'center', vertical: 'middle' };
+      excelRow.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+      excelRow.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+
+      values.forEach((_, index) => {
+        excelRow.getCell(index + 1).border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      });
+
+      dates.forEach((dateStr, dateIndex) => {
+        if (!weekendDates.has(dateStr)) return;
+        const weekendCell = excelRow.getCell(4 + dateIndex);
+        weekendCell.fill = weekendCellFill;
+        weekendCell.font = { bold: true, color: { argb: 'FF92400E' } };
+      });
+    });
+
+    const totalRow = worksheet.getRow(dataRowStart + computedRows.length);
+    const totalValues = [
+      '',
+      'TOTAL',
+      '',
+      ...dates.map(() => ''),
+      '',
+      '',
+      Math.round(totalTax),
+      Math.round(totalGross),
+      Math.round(totalDeduction),
+      Math.round(totalNet)
+    ];
+    totalValues.forEach((value, index) => {
+      totalRow.getCell(index + 1).value = value;
+      totalRow.getCell(index + 1).border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+      totalRow.getCell(index + 1).fill = totalFill;
+      totalRow.getCell(index + 1).font = { bold: true };
+    });
+    totalRow.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+    dates.forEach((dateStr, index) => {
+      if (!weekendDates.has(dateStr)) return;
+      totalRow.getCell(4 + index).fill = weekendCellFill;
+    });
+
+    worksheet.views = [{ state: 'frozen', xSplit: 3, ySplit: headerRowIndex }];
+    worksheet.autoFilter = {
+      from: { row: headerRowIndex, column: 1 },
+      to: { row: headerRowIndex, column: totalColumns }
+    };
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Attendance_${monthKey}.xls`;
+    a.download = `Attendance_${monthKey}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

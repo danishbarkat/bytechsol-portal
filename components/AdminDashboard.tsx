@@ -1481,23 +1481,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return acc;
     }, {});
 
-    const toCsv = (value: any) => {
-      const str = value === null || value === undefined ? '' : String(value);
-      if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
-      return str;
-    };
-
-    const header: string[] = ['S.No', 'Employee', 'Employee ID'];
-    dates.forEach(d => header.push(d.split('-')[2])); // day numbers as columns
-    header.push('Absent Days', 'Leave Days', 'Tax', 'Total Salary', 'Deductions', 'Net Pay');
-
-    const rows: string[][] = [header.map(toCsv)];
-
     const isWeekend = (dateStr: string) => {
       const d = new Date(`${dateStr}T00:00:00`);
       const day = d.getDay();
       return day === 0 || day === 6;
     };
+    const weekendDates = new Set(dates.filter(isWeekend));
+    const getWeekdayShort = (dateStr: string) =>
+      new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' });
 
     const findLeaveForDate = (userId: string, dateStr: string): LeaveRequest | null => {
       const list = leavesByUser[userId] || [];
@@ -1514,7 +1505,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     let totalDeduction = 0;
     let totalNet = 0;
 
-    exportUsers.forEach((u, idx) => {
+    const headerCells = [
+      '<th>S.No</th>',
+      '<th>Employee</th>',
+      '<th>Employee ID</th>',
+      ...dates.map(dateStr => {
+        const weekendClass = weekendDates.has(dateStr) ? 'weekend-col' : '';
+        return `<th class="${weekendClass}">${escapeHtml(`${getWeekdayShort(dateStr)} ${dateStr.slice(-2)}`)}</th>`;
+      }),
+      '<th>Absent Days</th>',
+      '<th>Leave Days</th>',
+      '<th>Tax</th>',
+      '<th>Total Salary</th>',
+      '<th>Deductions</th>',
+      '<th>Net Pay</th>'
+    ].join('');
+
+    const computedRows = exportUsers.map((u, idx) => {
       const userRecords = recordsByUser[u.id] || [];
       const basic = Number(u.basicSalary) || 0;
       const home = Number(u.homeAllowance) || 0;
@@ -1532,64 +1539,114 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const tax = calculateMonthlyTax(basic, u.employeeId, u.name);
       const net = Math.max(0, gross - tax - leaveDeduction);
 
-      totalGross += gross;
-      totalTax += tax;
-      totalDeduction += leaveDeduction + tax;
-      totalNet += net;
-
       let absentCount = 0;
       let leaveCount = 0;
-
       const dailyMarks = dates.map(dateStr => {
         const rec = userRecords.find(r => resolveRecordDate(r) === dateStr) || null;
         const leave = findLeaveForDate(u.id, dateStr);
         const weekend = isWeekend(dateStr);
+        if (weekend) return 'Weekend';
         if (leave) {
           leaveCount += 1;
           return leave.isPaid === false ? 'UL' : 'LV';
         }
-        if (weekend) return 'W';
         if (!rec) {
           absentCount += 1;
           return 'A';
         }
-        const isLate = calculateCheckInStatus(rec) === 'Late';
-        return isLate ? 'L' : 'P';
+        const late = calculateCheckInStatus(rec) === 'Late';
+        return late ? 'L' : 'P';
       });
 
-      rows.push([
-        idx + 1,
-        u.name || '',
-        u.employeeId || '',
-        ...dailyMarks,
+      return {
+        serial: idx + 1,
+        employee: u.name || '',
+        employeeId: u.employeeId || '',
+        dailyMarks,
         absentCount,
         leaveCount,
-        Math.round(tax),
-        Math.round(gross),
-        Math.round(leaveDeduction + tax),
-        Math.round(net)
-      ].map(toCsv));
+        tax: Math.round(tax),
+        gross: Math.round(gross),
+        deductions: Math.round(leaveDeduction + tax),
+        net: Math.round(net)
+      };
     });
 
-    rows.push([
-      '',
-      'TOTAL',
-      '',
-      ...Array(dates.length).fill(''),
-      '',
-      '',
-      Math.round(totalTax),
-      Math.round(totalGross),
-      Math.round(totalDeduction),
-      Math.round(totalNet)
-    ].map(toCsv));
+    const rowHtml = computedRows.map(row => {
+      const dayCells = row.dailyMarks.map((mark, index) => {
+        const dateStr = dates[index];
+        const weekendClass = weekendDates.has(dateStr) ? 'weekend-cell' : '';
+        return `<td class="${weekendClass}">${escapeHtml(mark)}</td>`;
+      }).join('');
 
-    const csv = rows.map(r => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+      return `
+        <tr>
+          <td>${row.serial}</td>
+          <td class="text-cell">${escapeHtml(row.employee)}</td>
+          <td class="text-cell">${escapeHtml(row.employeeId)}</td>
+          ${dayCells}
+          <td>${row.absentCount}</td>
+          <td>${row.leaveCount}</td>
+          <td>${row.tax}</td>
+          <td>${row.gross}</td>
+          <td>${row.deductions}</td>
+          <td>${row.net}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const totalDayCells = dates.map(dateStr => (
+      `<td class="${weekendDates.has(dateStr) ? 'weekend-cell' : ''}"></td>`
+    )).join('');
+
+    const excelHtml = `<!doctype html>
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="ProgId" content="Excel.Sheet" />
+          <meta name="Generator" content="Bytechsol Portal" />
+          <style>
+            body { font-family: Arial, sans-serif; padding: 16px; color: #111827; }
+            h1 { font-size: 20px; text-align: center; margin: 0 0 16px; }
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #cbd5e1; padding: 6px 8px; font-size: 12px; text-align: center; white-space: nowrap; }
+            th { background: #d1d5db; font-weight: 700; }
+            .text-cell { text-align: left; }
+            .weekend-col { background: #fde68a; color: #7c2d12; }
+            .weekend-cell { background: #fef3c7; color: #92400e; font-weight: 700; }
+            .total-row td { background: #e5e7eb; font-weight: 700; }
+          </style>
+        </head>
+        <body>
+          <h1>Attendance ${escapeHtml(monthLabel)} (${escapeHtml(monthKey)})</h1>
+          <table>
+            <thead>
+              <tr>${headerCells}</tr>
+            </thead>
+            <tbody>
+              ${rowHtml}
+              <tr class="total-row">
+                <td></td>
+                <td class="text-cell">TOTAL</td>
+                <td></td>
+                ${totalDayCells}
+                <td></td>
+                <td></td>
+                <td>${Math.round(totalTax)}</td>
+                <td>${Math.round(totalGross)}</td>
+                <td>${Math.round(totalDeduction)}</td>
+                <td>${Math.round(totalNet)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </body>
+      </html>`;
+
+    const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Attendance_${monthKey}.csv`;
+    a.download = `Attendance_${monthKey}.xls`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

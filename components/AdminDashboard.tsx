@@ -622,6 +622,45 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const shift = getShiftForEmployee(worker?.employeeId);
     return record.date || getShiftDateString(new Date(record.checkIn), shift.start, shift.end);
   };
+  const dedupeAttendanceRecords = (list: AttendanceRecord[]) => {
+    const pickPreferred = (current: AttendanceRecord, next: AttendanceRecord) => {
+      const currentHasOut = Boolean(current.checkOut);
+      const nextHasOut = Boolean(next.checkOut);
+      if (nextHasOut !== currentHasOut) {
+        return nextHasOut ? next : current;
+      }
+
+      const currentHours = Number(current.totalHours) || 0;
+      const nextHours = Number(next.totalHours) || 0;
+      if (nextHours !== currentHours) {
+        return nextHours > currentHours ? next : current;
+      }
+
+      const currentCheckInTime = Date.parse(current.checkIn || '');
+      const nextCheckInTime = Date.parse(next.checkIn || '');
+      if (Number.isFinite(currentCheckInTime) && Number.isFinite(nextCheckInTime) && currentCheckInTime !== nextCheckInTime) {
+        return nextCheckInTime < currentCheckInTime ? next : current;
+      }
+
+      return current;
+    };
+
+    const grouped = new Map<string, AttendanceRecord>();
+    list.forEach(record => {
+      const matchingUser = users.find(u => u.id === record.userId)
+        || users.find(u => u.employeeId && record.userId && normalizeEmployeeId(u.employeeId) === normalizeEmployeeId(String(record.userId)))
+        || users.find(u => record.userName && (u.name || '').trim().toLowerCase() === record.userName.trim().toLowerCase());
+      const ownerKey = matchingUser?.id
+        || (matchingUser?.employeeId ? normalizeEmployeeId(matchingUser.employeeId) : '')
+        || record.userId
+        || (record.userName || '').trim().toLowerCase()
+        || record.id;
+      const key = `${ownerKey}::${resolveRecordDate(record)}`;
+      const existing = grouped.get(key);
+      grouped.set(key, existing ? pickPreferred(existing, record) : record);
+    });
+    return Array.from(grouped.values());
+  };
   const [docForm, setDocForm] = useState<Record<string, string>>(() => {
     const now = new Date();
     const today = getLocalDateString(now);
@@ -729,7 +768,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
     return false;
   };
-  const visibleRecords = isSuperadmin || isCeo || !rosterAvailable ? records : records.filter(isRecordVisible);
+  const visibleRecordsRaw = isSuperadmin || isCeo || !rosterAvailable ? records : records.filter(isRecordVisible);
+  const visibleRecords = dedupeAttendanceRecords(visibleRecordsRaw);
   const visibleLeaves = isSuperadmin || isCeo || !rosterAvailable ? leaves : leaves.filter(isLeaveVisible);
   const visibleLeaveRequests = visibleLeaves.filter(l => !l.id.startsWith('auto-absence:'));
   const visibleWfh = isSuperadmin || isCeo || !rosterAvailable ? wfhRequests : wfhRequests.filter(r => visibleUserIds.has(r.userId));

@@ -26,6 +26,7 @@ export const APP_CONFIG = {
     'BS-MEHA015',
     'BS-HABA004',
     'BS-NASI017',
+    'BS-WAUD013',
   ],
   REMOTE_LOGIN_NAMES: ['Danish Barkat', 'Noor Ul Sabah', 'Hanan', 'Najeeb Ullah Siddiqui'],
   CHECKIN_OVERRIDE_EMPLOYEE_IDS: [],

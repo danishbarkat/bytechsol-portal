@@ -1242,7 +1242,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const isNoLateWindow =
       worker?.employeeId &&
       normalizeEmployeeId(worker.employeeId) === 'BS-DABA010' &&
-      ['Mon', 'Tue', 'Wed', 'Thu'].includes(weekday);
+      ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday);
     if (isNoLateWindow) return 'On-Time';
     const isFriday = weekday === 'Fri';
     const exemptIds = APP_CONFIG.FRIDAY_LATE_EXEMPT_EMPLOYEE_IDS.map(id => normalizeEmployeeId(id));

@@ -1921,9 +1921,15 @@ useEffect(() => {
   if (ipStatus === 'blocked' && user) {
     const todayStr = getLocalDateString(new Date());
     const isWfhToday = isWfhApprovedForUser(user.id, todayStr);
+    const isLeaveToday = leaves.some(
+      l => l.userId === user.id && l.status === 'Approved' && isDateInRange(todayStr, l.startDate, l.endDate)
+    );
+    const matchesRemoteName = user.name ? remoteLoginNames.includes(user.name.trim().toLowerCase()) : false;
     const isRemoteSessionAllowed = remoteLoginIds.includes(normalizeEmployeeId(user.employeeId || ''))
       || user.workMode === 'Remote'
-      || isWfhToday;
+      || isWfhToday
+      || isLeaveToday
+      || matchesRemoteName;
     if (!isRemoteSessionAllowed) {
       return (
         <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
@@ -2260,7 +2266,10 @@ useEffect(() => {
     .filter(n => n.userId === user.id)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const isCheckinOverrideUser = Boolean(
-    user?.employeeId && checkinOverrideIds.includes(normalizeEmployeeId(user.employeeId))
+    user?.employeeId && (
+      checkinOverrideIds.includes(normalizeEmployeeId(user.employeeId))
+      || remoteLoginIds.includes(normalizeEmployeeId(user.employeeId))
+    )
   );
 
   return (
